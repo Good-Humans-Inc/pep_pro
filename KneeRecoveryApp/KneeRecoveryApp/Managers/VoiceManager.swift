@@ -29,6 +29,9 @@ class VoiceManager: NSObject, ObservableObject {
     // Completion handler for speech
     private var completionHandler: (() -> Void)?
     
+    // Observer for status changes
+    private var statusObserver: AnyCancellable?
+    
     override init() {
         super.init()
         speechSynthesizer.delegate = self
@@ -101,6 +104,11 @@ class VoiceManager: NSObject, ObservableObject {
                     }
                 }
                 
+                // Set status to connecting
+                DispatchQueue.main.async {
+                    self.status = .connecting
+                }
+                
                 // Start the conversation session
                 conversation = try await ElevenLabsSDK.Conversation.startSession(
                     config: config,
@@ -117,6 +125,7 @@ class VoiceManager: NSObject, ObservableObject {
                 
                 DispatchQueue.main.async {
                     self.voiceError = "Failed to start ElevenLabs: \(error.localizedDescription)"
+                    self.status = .disconnected
                 }
             }
         }
@@ -216,6 +225,12 @@ class VoiceManager: NSObject, ObservableObject {
         // Stop speaking and end session
         stopSpeaking()
         endElevenLabsSession()
+        
+        // Reset state
+        DispatchQueue.main.async {
+            self.transcribedText = ""
+            self.lastSpokenText = ""
+        }
         
         // Deactivate audio session
         do {

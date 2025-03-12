@@ -8,6 +8,20 @@
 
 /* Begin PBXBuildFile section */
 		2C12BAFE2D6E532F005AC0B0 /* ElevenLabsSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 2C12BAFD2D6E532F005AC0B0 /* ElevenLabsSDK */; };
+		2CD9D0302D801CF1007F31A0 /* SDWebImageSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D02F2D801CF1007F31A0 /* SDWebImageSwiftUI */; };
+		2CD9D03C2D8146DE007F31A0 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D03B2D8146DE007F31A0 /* FirebaseAnalytics */; };
+		2CD9D03E2D8146DE007F31A0 /* FirebaseAnalyticsOnDeviceConversion in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D03D2D8146DE007F31A0 /* FirebaseAnalyticsOnDeviceConversion */; };
+		2CD9D0402D8146DE007F31A0 /* FirebaseAnalyticsWithoutAdIdSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D03F2D8146DE007F31A0 /* FirebaseAnalyticsWithoutAdIdSupport */; };
+		2CD9D0422D8146DE007F31A0 /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0412D8146DE007F31A0 /* FirebaseAppCheck */; };
+		2CD9D0442D8146DE007F31A0 /* FirebaseAppDistribution-Beta in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0432D8146DE007F31A0 /* FirebaseAppDistribution-Beta */; };
+		2CD9D0462D8146DE007F31A0 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0452D8146DE007F31A0 /* FirebaseAuth */; };
+		2CD9D0482D8146DE007F31A0 /* FirebaseAuthCombine-Community in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0472D8146DE007F31A0 /* FirebaseAuthCombine-Community */; };
+		2CD9D04A2D8146DE007F31A0 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0492D8146DE007F31A0 /* FirebaseCore */; };
+		2CD9D04C2D8146DE007F31A0 /* FirebaseDatabase in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D04B2D8146DE007F31A0 /* FirebaseDatabase */; };
+		2CD9D04E2D8146DE007F31A0 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D04D2D8146DE007F31A0 /* FirebaseFirestore */; };
+		2CD9D0502D8146DE007F31A0 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D04F2D8146DE007F31A0 /* FirebaseFunctions */; };
+		2CD9D0522D8146DE007F31A0 /* FirebaseInAppMessaging-Beta in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0512D8146DE007F31A0 /* FirebaseInAppMessaging-Beta */; };
+		2CD9D0542D8146DE007F31A0 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0532D8146DE007F31A0 /* FirebaseStorage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -33,9 +47,38 @@
 		2C12BABF2D6E50D0005AC0B0 /* KneeRecoveryAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KneeRecoveryAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		2CD9D0382D814617007F31A0 /* Exceptions for "KneeRecoveryApp" folder in "KneeRecoveryAppTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"GoogleService-Info.plist",
+			);
+			target = 2C12BAB42D6E50D0005AC0B0 /* KneeRecoveryAppTests */;
+		};
+		2CD9D0392D814617007F31A0 /* Exceptions for "KneeRecoveryApp" folder in "KneeRecoveryAppUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"GoogleService-Info.plist",
+			);
+			target = 2C12BABE2D6E50D0005AC0B0 /* KneeRecoveryAppUITests */;
+		};
+		2CD9D0572D814A0F007F31A0 /* Exceptions for "KneeRecoveryApp" folder in "KneeRecoveryApp" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 2C12BAA42D6E50CF005AC0B0 /* KneeRecoveryApp */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		2C12BAA72D6E50CF005AC0B0 /* KneeRecoveryApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2CD9D0572D814A0F007F31A0 /* Exceptions for "KneeRecoveryApp" folder in "KneeRecoveryApp" target */,
+				2CD9D0382D814617007F31A0 /* Exceptions for "KneeRecoveryApp" folder in "KneeRecoveryAppTests" target */,
+				2CD9D0392D814617007F31A0 /* Exceptions for "KneeRecoveryApp" folder in "KneeRecoveryAppUITests" target */,
+			);
 			path = KneeRecoveryApp;
 			sourceTree = "<group>";
 		};
@@ -56,7 +99,21 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2CD9D0442D8146DE007F31A0 /* FirebaseAppDistribution-Beta in Frameworks */,
+				2CD9D0522D8146DE007F31A0 /* FirebaseInAppMessaging-Beta in Frameworks */,
+				2CD9D0482D8146DE007F31A0 /* FirebaseAuthCombine-Community in Frameworks */,
+				2CD9D0302D801CF1007F31A0 /* SDWebImageSwiftUI in Frameworks */,
+				2CD9D0402D8146DE007F31A0 /* FirebaseAnalyticsWithoutAdIdSupport in Frameworks */,
 				2C12BAFE2D6E532F005AC0B0 /* ElevenLabsSDK in Frameworks */,
+				2CD9D04E2D8146DE007F31A0 /* FirebaseFirestore in Frameworks */,
+				2CD9D03C2D8146DE007F31A0 /* FirebaseAnalytics in Frameworks */,
+				2CD9D0542D8146DE007F31A0 /* FirebaseStorage in Frameworks */,
+				2CD9D04A2D8146DE007F31A0 /* FirebaseCore in Frameworks */,
+				2CD9D0422D8146DE007F31A0 /* FirebaseAppCheck in Frameworks */,
+				2CD9D0502D8146DE007F31A0 /* FirebaseFunctions in Frameworks */,
+				2CD9D04C2D8146DE007F31A0 /* FirebaseDatabase in Frameworks */,
+				2CD9D03E2D8146DE007F31A0 /* FirebaseAnalyticsOnDeviceConversion in Frameworks */,
+				2CD9D0462D8146DE007F31A0 /* FirebaseAuth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +175,20 @@
 			name = KneeRecoveryApp;
 			packageProductDependencies = (
 				2C12BAFD2D6E532F005AC0B0 /* ElevenLabsSDK */,
+				2CD9D02F2D801CF1007F31A0 /* SDWebImageSwiftUI */,
+				2CD9D03B2D8146DE007F31A0 /* FirebaseAnalytics */,
+				2CD9D03D2D8146DE007F31A0 /* FirebaseAnalyticsOnDeviceConversion */,
+				2CD9D03F2D8146DE007F31A0 /* FirebaseAnalyticsWithoutAdIdSupport */,
+				2CD9D0412D8146DE007F31A0 /* FirebaseAppCheck */,
+				2CD9D0432D8146DE007F31A0 /* FirebaseAppDistribution-Beta */,
+				2CD9D0452D8146DE007F31A0 /* FirebaseAuth */,
+				2CD9D0472D8146DE007F31A0 /* FirebaseAuthCombine-Community */,
+				2CD9D0492D8146DE007F31A0 /* FirebaseCore */,
+				2CD9D04B2D8146DE007F31A0 /* FirebaseDatabase */,
+				2CD9D04D2D8146DE007F31A0 /* FirebaseFirestore */,
+				2CD9D04F2D8146DE007F31A0 /* FirebaseFunctions */,
+				2CD9D0512D8146DE007F31A0 /* FirebaseInAppMessaging-Beta */,
+				2CD9D0532D8146DE007F31A0 /* FirebaseStorage */,
 			);
 			productName = KneeRecoveryApp;
 			productReference = 2C12BAA52D6E50CF005AC0B0 /* KneeRecoveryApp.app */;
@@ -203,6 +274,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				2C12BAFC2D6E532F005AC0B0 /* XCRemoteSwiftPackageReference "ElevenLabsSwift" */,
+				2CD9D02E2D801CF1007F31A0 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */,
+				2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2C12BAA62D6E50CF005AC0B0 /* Products */;
@@ -402,12 +475,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = KneeRecoveryApp/KneeRecoveryApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"KneeRecoveryApp/Preview Content\"";
 				DEVELOPMENT_TEAM = 2MLHSW6S86;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = KneeRecoveryApp/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required to track your exercises and provide real-time feedback.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Microphone access is required to listen to your voice commands during exercises.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech recognition is used to understand your voice commands during exercises.";
@@ -434,12 +509,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = KneeRecoveryApp/KneeRecoveryApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"KneeRecoveryApp/Preview Content\"";
 				DEVELOPMENT_TEAM = 2MLHSW6S86;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = KneeRecoveryApp/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required to track your exercises and provide real-time feedback.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Microphone access is required to listen to your voice commands during exercises.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech recognition is used to understand your voice commands during exercises.";
@@ -583,6 +660,22 @@
 				kind = branch;
 			};
 		};
+		2CD9D02E2D801CF1007F31A0 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SDWebImage/SDWebImageSwiftUI.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.1.3;
+			};
+		};
+		2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.9.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -590,6 +683,76 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2C12BAFC2D6E532F005AC0B0 /* XCRemoteSwiftPackageReference "ElevenLabsSwift" */;
 			productName = ElevenLabsSDK;
+		};
+		2CD9D02F2D801CF1007F31A0 /* SDWebImageSwiftUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D02E2D801CF1007F31A0 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */;
+			productName = SDWebImageSwiftUI;
+		};
+		2CD9D03B2D8146DE007F31A0 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
+		};
+		2CD9D03D2D8146DE007F31A0 /* FirebaseAnalyticsOnDeviceConversion */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalyticsOnDeviceConversion;
+		};
+		2CD9D03F2D8146DE007F31A0 /* FirebaseAnalyticsWithoutAdIdSupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalyticsWithoutAdIdSupport;
+		};
+		2CD9D0412D8146DE007F31A0 /* FirebaseAppCheck */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAppCheck;
+		};
+		2CD9D0432D8146DE007F31A0 /* FirebaseAppDistribution-Beta */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = "FirebaseAppDistribution-Beta";
+		};
+		2CD9D0452D8146DE007F31A0 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		2CD9D0472D8146DE007F31A0 /* FirebaseAuthCombine-Community */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = "FirebaseAuthCombine-Community";
+		};
+		2CD9D0492D8146DE007F31A0 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		2CD9D04B2D8146DE007F31A0 /* FirebaseDatabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseDatabase;
+		};
+		2CD9D04D2D8146DE007F31A0 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		2CD9D04F2D8146DE007F31A0 /* FirebaseFunctions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFunctions;
+		};
+		2CD9D0512D8146DE007F31A0 /* FirebaseInAppMessaging-Beta */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = "FirebaseInAppMessaging-Beta";
+		};
+		2CD9D0532D8146DE007F31A0 /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

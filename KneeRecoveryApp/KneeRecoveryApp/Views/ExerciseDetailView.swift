@@ -7,6 +7,16 @@ struct ExerciseDetailView: View {
     @State private var isExerciseActive = false
     @State private var remainingTime: TimeInterval = 0
     @State private var timer: Timer? = nil
+    @State private var isPTEditMode = false
+    @State private var showingPTModifySheet = false
+    @State private var showingVideoRecorder = false
+    
+    // Exercise modification fields
+    @State private var modifiedFrequency = "daily"
+    @State private var modifiedSets = 3
+    @State private var modifiedReps = 10
+    @State private var modifiedNotes = ""
+    @State private var recordedVideoURL: URL? = nil
     
     @EnvironmentObject private var cameraManager: CameraManager
     @EnvironmentObject private var visionManager: VisionManager

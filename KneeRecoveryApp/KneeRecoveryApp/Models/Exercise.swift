@@ -24,7 +24,7 @@ struct Exercise: Identifiable {
 
 // Example exercises
 extension Exercise {
-    static let examples = [
+    static var examples = [
         Exercise(
             name: "Knee Flexion",
             description: "Gently bend and extend your knee to improve range of motion",
