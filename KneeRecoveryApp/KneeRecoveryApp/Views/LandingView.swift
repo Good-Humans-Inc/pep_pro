@@ -1,11 +1,80 @@
 import SwiftUI
 
+// MARK: - AddExerciseSheet View Modifier
+struct AddExerciseSheetModifier: ViewModifier {
+    @Binding var exercises: [Exercise]
+    @State private var showingAddExerciseSheet = false
+    
+    @EnvironmentObject private var speechRecognitionManager: SpeechRecognitionManager
+    
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $showingAddExerciseSheet) {
+                AddExerciseView(onExerciseAdded: { exerciseName, voiceInstructions in
+                    addCustomExercise(name: exerciseName, voiceInstructions: voiceInstructions)
+                })
+            }
+            .environment(\.showAddExerciseSheetAction, {
+                speechRecognitionManager.recognizedText = ""
+                showingAddExerciseSheet = true
+            })
+    }
+    
+    private func addCustomExercise(name: String, voiceInstructions: String = "") {
+        // Create a new exercise locally
+        let newExercise = Exercise(
+            id: UUID(),
+            name: name,
+            description: "Custom exercise added by you",
+            imageURLString: nil,
+            duration: 180,
+            targetJoints: [.leftKnee, .rightKnee],
+            instructions: [
+                "This exercise will be customized by you",
+                "Add your own instructions in the exercise details"
+            ]
+        )
+        
+        // Add it to the exercises array
+        exercises.append(newExercise)
+        
+        // In a real app, you would also call your API here
+        // makeAPICall(name: name, voiceInstructions: voiceInstructions)
+    }
+}
+
+// MARK: - Environment Key for Show Sheet Action
+private struct ShowAddExerciseSheetKey: EnvironmentKey {
+    static let defaultValue: () -> Void = { }
+}
+
+extension EnvironmentValues {
+    var showAddExerciseSheetAction: () -> Void {
+        get { self[ShowAddExerciseSheetKey.self] }
+        set { self[ShowAddExerciseSheetKey.self] = newValue }
+    }
+}
+
+// MARK: - View Extension for Modifier
+extension View {
+    func withAddExerciseSheet(exercises: Binding<[Exercise]>) -> some View {
+        modifier(AddExerciseSheetModifier(exercises: exercises))
+    }
+    
+    func showAddExerciseSheet() {
+        @Environment(\.showAddExerciseSheetAction) var showSheet
+        showSheet()
+    }
+}
+
+// MARK: - LandingView Implementation
 struct LandingView: View {
     @State private var exercises = Exercise.examples
     @State private var showingPermissionsAlert = false
     
     @EnvironmentObject private var resourceCoordinator: ResourceCoordinator
     @EnvironmentObject private var voiceManager: VoiceManager
+    @EnvironmentObject private var speechRecognitionManager: SpeechRecognitionManager
     
     var body: some View {
         NavigationView {
@@ -14,7 +83,14 @@ struct LandingView: View {
                     Section(header: Text("Your Recommended Exercises").font(.headline)) {
                         ForEach(exercises) { exercise in
                             NavigationLink(destination: ExerciseDetailView(exercise: exercise)) {
-                                ExerciseCard(exercise: exercise)
+                                ExerciseCard(
+                                    exercise: exercise,
+                                    onAddNewExercise: {
+                                        // This function now comes from the environment
+                                        // The implementation is in the modifier
+                                        showAddExerciseSheet()
+                                    }
+                                )
                             }
                         }
                     }
@@ -55,11 +131,11 @@ struct LandingView: View {
                 voiceManager.endElevenLabsSession()
                 
                 // Optional: Check if permissions are already granted
-                if let _ = resourceCoordinator as ResourceCoordinator? {
-                    resourceCoordinator.checkInitialPermissions()
-                }
+                resourceCoordinator.checkInitialPermissions()
             }
         }
+        // Apply the custom modifier to handle add exercise sheet
+        .withAddExerciseSheet(exercises: $exercises)
     }
     
     private func checkPermissions() {

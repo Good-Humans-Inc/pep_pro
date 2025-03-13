@@ -7,9 +7,10 @@ struct ExerciseDetailView: View {
     @State private var isExerciseActive = false
     @State private var remainingTime: TimeInterval = 0
     @State private var timer: Timer? = nil
-    @State private var isPTEditMode = false
+    // @State private var isPTEditMode = false
     @State private var showingPTModifySheet = false
     @State private var showingVideoRecorder = false
+    @State private var showingModifySheet = false
     
     // Exercise modification fields
     @State private var modifiedFrequency = "daily"
@@ -17,6 +18,10 @@ struct ExerciseDetailView: View {
     @State private var modifiedReps = 10
     @State private var modifiedNotes = ""
     @State private var recordedVideoURL: URL? = nil
+    
+    // API connection states
+    @State private var isUploading = false
+    @State private var uploadError: String? = nil
     
     @EnvironmentObject private var cameraManager: CameraManager
     @EnvironmentObject private var visionManager: VisionManager
@@ -107,6 +112,47 @@ struct ExerciseDetailView: View {
                         Text(exercise.description)
                             .foregroundColor(.secondary)
                         
+                        // Modification controls - available for all users
+                        VStack(alignment: .leading, spacing: 8) {
+                            Divider()
+                            
+                            Text("Customize Exercise")
+                                .font(.headline)
+                                .foregroundColor(.blue)
+                            
+                            Button(action: {
+                                showingModifySheet = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "pencil")
+                                    Text("Modify Exercise")
+                                }
+                                .padding(10)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                            
+                            Button(action: {
+                                showingVideoRecorder = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "video.fill")
+                                    Text("Record Custom Video")
+                                }
+                                .padding(10)
+                                .background(Color.green.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                            
+                            if let error = uploadError {
+                                Text(error)
+                                    .foregroundColor(.red)
+                                    .font(.caption)
+                            }
+                            
+                            Divider()
+                        }
+                        
                         // Target joints
                         VStack(alignment: .leading) {
                             Text("Target Areas")
@@ -166,7 +212,38 @@ struct ExerciseDetailView: View {
             if isExerciseActive {
                 stopExercise()
             }
+        }.sheet(isPresented: $showingModifySheet) {
+            ModifyExerciseView(
+                exercise: exercise,
+                frequency: $modifiedFrequency,
+                sets: $modifiedSets,
+                reps: $modifiedReps,
+                notes: $modifiedNotes,
+                onSave: saveModifications
+            )
         }
+        .sheet(isPresented: $showingVideoRecorder) {
+            ExerciseVideoRecorder(onVideoSaved: { url in
+                self.recordedVideoURL = url
+                saveModifications()
+            })
+        }
+        .overlay(
+            Group {
+                if isUploading {
+                    VStack {
+                        ProgressView()
+                        Text("Saving changes...")
+                            .font(.caption)
+                            .padding(.top, 8)
+                    }
+                    .frame(width: 150, height: 100)
+                    .background(Color.black.opacity(0.7))
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                }
+            }
+        )
     }
     
     private func startExercise() {
@@ -218,6 +295,124 @@ struct ExerciseDetailView: View {
         let minutes = Int(timeInterval) / 60
         let seconds = Int(timeInterval) % 60
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    private func saveModifications() {
+        // Show loading indicator
+        isUploading = true
+        uploadError = nil
+        
+        // Prepare video data if available
+        var videoData: Data? = nil
+        if let recordedVideoURL = self.recordedVideoURL {
+            do {
+                videoData = try Data(contentsOf: recordedVideoURL)
+            } catch {
+                self.uploadError = "Failed to read video data: \(error.localizedDescription)"
+                self.isUploading = false
+                return
+            }
+        }
+        
+        // Construct the request body
+        var requestBody: [String: Any] = [
+            "action": "modify",
+            "user_id": UserDefaults.standard.string(forKey: "user_id") ?? UUID().uuidString,
+            "patient_id": UserDefaults.standard.string(forKey: "patient_id") ?? UUID().uuidString,
+            "patient_exercise_id": exercise.id.uuidString,
+            "modifications": [
+                "frequency": self.modifiedFrequency,
+                "sets": self.modifiedSets,
+                "repetitions": self.modifiedReps,
+                "notes": self.modifiedNotes
+            ]
+        ]
+        
+        // Add video data if available
+        if let videoData = videoData {
+            requestBody["custom_video"] = [
+                "base64_data": videoData.base64EncodedString(),
+                "content_type": "video/mp4",
+                "filename": "\(exercise.id)-custom.mp4"
+            ]
+        }
+        
+        // Convert request body to JSON
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
+            self.uploadError = "Failed to create request data"
+            self.isUploading = false
+            return
+        }
+        
+        // Create the URL request
+        let urlString = "https://us-central1-duoligo-pt-app.cloudfunctions.net/manage_exercise"
+        guard let url = URL(string: urlString) else {
+            self.uploadError = "Invalid API URL"
+            self.isUploading = false
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+        
+        // Create the data task
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                self.isUploading = false
+                
+                if let error = error {
+                    self.uploadError = "Network error: \(error.localizedDescription)"
+                    return
+                }
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    self.uploadError = "Invalid response from server"
+                    return
+                }
+                
+                if httpResponse.statusCode != 200 {
+                    self.uploadError = "Server error: HTTP \(httpResponse.statusCode)"
+                    if let data = data, let errorMessage = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let errorText = errorMessage["error"] as? String {
+                        self.uploadError = errorText
+                    }
+                    return
+                }
+                
+                guard let data = data else {
+                    self.uploadError = "No data received from server"
+                    return
+                }
+                
+                // Parse the response
+                do {
+                    let responseDict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                    
+                    if let status = responseDict?["status"] as? String, status == "success" {
+                        // Handle success - perhaps update the local exercise data
+                        if let exerciseData = responseDict?["exercise"] as? [String: Any],
+                           let videoUrl = exerciseData["video_url"] as? String {
+                            // Update URL if a new video was saved
+                            // In a real app, you'd update the actual Exercise object or reload it
+                            print("Exercise updated with new video URL: \(videoUrl)")
+                        }
+                        
+                        // Display success feedback
+                        // You could use a toast message or other UI indicator here
+                        self.uploadError = nil
+                    } else {
+                        self.uploadError = responseDict?["error"] as? String ?? "Unknown error"
+                    }
+                } catch {
+                    self.uploadError = "Failed to parse response: \(error.localizedDescription)"
+                }
+            }
+        }
+        
+        // Start the request
+        task.resume()
     }
 }
 

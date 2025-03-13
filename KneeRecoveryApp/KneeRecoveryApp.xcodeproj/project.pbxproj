@@ -22,6 +22,7 @@
 		2CD9D0502D8146DE007F31A0 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D04F2D8146DE007F31A0 /* FirebaseFunctions */; };
 		2CD9D0522D8146DE007F31A0 /* FirebaseInAppMessaging-Beta in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0512D8146DE007F31A0 /* FirebaseInAppMessaging-Beta */; };
 		2CD9D0542D8146DE007F31A0 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0532D8146DE007F31A0 /* FirebaseStorage */; };
+		2CD9D0612D825F3E007F31A0 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0602D825F3E007F31A0 /* FirebaseMessaging */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -99,6 +100,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2CD9D0612D825F3E007F31A0 /* FirebaseMessaging in Frameworks */,
 				2CD9D0442D8146DE007F31A0 /* FirebaseAppDistribution-Beta in Frameworks */,
 				2CD9D0522D8146DE007F31A0 /* FirebaseInAppMessaging-Beta in Frameworks */,
 				2CD9D0482D8146DE007F31A0 /* FirebaseAuthCombine-Community in Frameworks */,
@@ -189,6 +191,7 @@
 				2CD9D04F2D8146DE007F31A0 /* FirebaseFunctions */,
 				2CD9D0512D8146DE007F31A0 /* FirebaseInAppMessaging-Beta */,
 				2CD9D0532D8146DE007F31A0 /* FirebaseStorage */,
+				2CD9D0602D825F3E007F31A0 /* FirebaseMessaging */,
 			);
 			productName = KneeRecoveryApp;
 			productReference = 2C12BAA52D6E50CF005AC0B0 /* KneeRecoveryApp.app */;
@@ -753,6 +756,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseStorage;
+		};
+		2CD9D0602D825F3E007F31A0 /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
