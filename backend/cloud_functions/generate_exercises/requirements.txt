@@ -1,2 +1,4 @@
 functions-framework==3.0.0
 google-cloud-firestore==2.11.1
+google-cloud-secretmanager==2.16.1
+requests==2.31.0
