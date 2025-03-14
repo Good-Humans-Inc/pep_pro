@@ -3,21 +3,30 @@ import json
 import uuid
 import os
 import requests
-from google.cloud import firestore, secretmanager
+import re
+from google.cloud import firestore, secret_manager
 from datetime import datetime
+
+# Custom JSON encoder to handle datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super(DateTimeEncoder, self).default(obj)
 
 # Secret Manager setup
 def access_secret_version(secret_id, version_id="latest"):
     """
     Access the secret from GCP Secret Manager
     """
-    client = secretmanager.SecretManagerServiceClient()
+    client = secret_manager.SecretManagerServiceClient()
     name = f"projects/{os.environ['PROJECT_ID']}/secrets/{secret_id}/versions/{version_id}"
     response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("UTF-8")
+    # Strip whitespace and newlines to avoid issues with API keys
+    return response.payload.data.decode("UTF-8").strip()
 
-# Initialize Firestore DB
-db = firestore.Client()
+# Initialize Firestore DB with explicit project and database
+db = firestore.Client(project='pep-pro', database='pep-pro')
 
 @functions_framework.http
 def generate_exercises(request):
@@ -46,7 +55,7 @@ def generate_exercises(request):
         request_json = request.get_json(silent=True)
         
         if not request_json or 'patient_id' not in request_json:
-            return (json.dumps({'error': 'Invalid request - missing patient_id'}), 400, headers)
+            return (json.dumps({'error': 'Invalid request - missing patient_id'}, cls=DateTimeEncoder), 400, headers)
         
         patient_id = request_json['patient_id']
         llm_provider = request_json.get('llm_provider', 'claude')  # Default to Claude if not specified
@@ -59,12 +68,12 @@ def generate_exercises(request):
                 'status': 'success', 
                 'exercises': existing_exercises,
                 'source': 'database'
-            }), 200, headers)
+            }, cls=DateTimeEncoder), 200, headers)
         
         # 2. If not enough existing exercises, get patient data
         patient_data = get_patient_data(patient_id)
         if not patient_data:
-            return (json.dumps({'error': 'Patient not found'}), 404, headers)
+            return (json.dumps({'error': 'Patient not found'}, cls=DateTimeEncoder), 404, headers)
         
         # 3. Generate exercises using LLM
         if llm_provider == 'openai':
@@ -80,10 +89,10 @@ def generate_exercises(request):
             'status': 'success',
             'exercises': saved_exercises,
             'source': 'llm-generated'
-        }), 200, headers)
+        }, cls=DateTimeEncoder), 200, headers)
         
     except Exception as e:
-        return (json.dumps({'error': f'Error generating exercises: {str(e)}'}), 500, headers)
+        return (json.dumps({'error': f'Error generating exercises: {str(e)}'}, cls=DateTimeEncoder), 500, headers)
 
 
 def check_existing_exercises(patient_id):
@@ -145,178 +154,183 @@ def generate_exercises_with_claude(patient_data):
     """
     Generate exercises using Anthropic's Claude API
     """
-    # Get API key from Secret Manager
-    api_key = access_secret_version("anthropic-api-key")
-    
-    # Construct prompt for Claude
-    name = patient_data.get('name', 'the patient')
-    age = patient_data.get('age', 'unknown age')
-    frequency = patient_data.get('exercise_frequency', 'daily')
-    
-    pain_points_text = "No specific pain points mentioned."
-    if 'pain_points' in patient_data and len(patient_data['pain_points']) > 0:
-        pain_descriptions = [f"{pp.get('description', 'knee pain')} (severity: {pp.get('severity', 5)}/10)" 
-                           for pp in patient_data['pain_points']]
-        pain_points_text = "Pain points: " + "; ".join(pain_descriptions)
-    
-    prompt = f"""
-    I need to generate personalized knee rehabilitation exercises for a patient with the following profile:
-    
-    Name: {name}
-    Age: {age}
-    Exercise frequency: {frequency}
-    {pain_points_text}
-    
-    Please provide 3-5 evidence-based exercises appropriate for knee rehabilitation for this specific patient.
-    Consider standard physical therapy protocols and clinical practice guidelines.
-    
-    For each exercise, include:
-    1. A clear name
-    2. A concise description
-    3. Target joints (comma-separated list)
-    4. Step-by-step instructions (semicolon-separated list)
-    5. A URL for a representative video if available
-    
-    Format your response as JSON according to this structure:
-    ```json
-    [
-      {{
-        "name": "Exercise Name",
-        "description": "Brief description of the exercise",
-        "target_joints": ["knee", "ankle"],
-        "instructions": [
-          "Step 1",
-          "Step 2",
-          "Step 3"
-        ],
-        "video_url": "https://example.com/video.mp4"
-      }}
-    ]
-    ```
-    
-    Respond ONLY with the JSON array and nothing else.
-    """
-    
-    # Call Claude API
-    response = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json"
-        },
-        json={
-            "model": "claude-3-opus-20240229",
-            "max_tokens": 2000,
-            "temperature": 0.3,
-            "system": "You are a senior physical therapist specializing in knee rehabilitation.",
-            "messages": [
-                {"role": "user", "content": prompt}
-            ]
-        }
-    )
-    
-    # Parse response
-    if response.status_code != 200:
-        raise Exception(f"Claude API error: {response.text}")
-    
-    result = response.json()
-    content = result.get('content', [{}])[0].get('text', '[]')
-    
-    # Extract JSON from the response
-    import re
-    json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
-    
-    if json_match:
-        exercises_json = json_match.group(1)
-    else:
-        exercises_json = content  # Assume the content is just JSON
-    
-    exercises = json.loads(exercises_json)
-    return exercises
+    try:
+        # Get API key from Secret Manager
+        api_key = access_secret_version("anthropic-api-key")
+        
+        # Construct prompt for Claude
+        name = patient_data.get('name', 'the patient')
+        age = patient_data.get('age', 'unknown age')
+        frequency = patient_data.get('exercise_frequency', 'daily')
+        
+        pain_points_text = "No specific pain points mentioned."
+        if 'pain_points' in patient_data and len(patient_data['pain_points']) > 0:
+            pain_descriptions = [f"{pp.get('description', 'knee pain')} (severity: {pp.get('severity', 5)}/10)" 
+                               for pp in patient_data['pain_points']]
+            pain_points_text = "Pain points: " + "; ".join(pain_descriptions)
+        
+        prompt = f"""
+        I need to generate personalized knee rehabilitation exercises for a patient with the following profile:
+        
+        Name: {name}
+        Age: {age}
+        Exercise frequency: {frequency}
+        {pain_points_text}
+        
+        Please provide 3-5 evidence-based exercises appropriate for knee rehabilitation for this specific patient.
+        Consider standard physical therapy protocols and clinical practice guidelines.
+        
+        For each exercise, include:
+        1. A clear name
+        2. A concise description
+        3. Target joints (comma-separated list)
+        4. Step-by-step instructions (semicolon-separated list)
+        5. A URL for a representative video if available
+        
+        Format your response as JSON according to this structure:
+        ```json
+        [
+          {{
+            "name": "Exercise Name",
+            "description": "Brief description of the exercise",
+            "target_joints": ["knee", "ankle"],
+            "instructions": [
+              "Step 1",
+              "Step 2",
+              "Step 3"
+            ],
+            "video_url": "https://example.com/video.mp4"
+          }}
+        ]
+        ```
+        
+        Respond ONLY with the JSON array and nothing else.
+        """
+        
+        # Call Claude API
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            },
+            json={
+                "model": "claude-3-opus-20240229",
+                "max_tokens": 2000,
+                "temperature": 0.3,
+                "system": "You are a senior physical therapist specializing in knee rehabilitation.",
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ]
+            }
+        )
+        
+        # Parse response
+        if response.status_code != 200:
+            raise Exception(f"Claude API error: {response.text}")
+        
+        result = response.json()
+        content = result.get('content', [{}])[0].get('text', '[]')
+        
+        # Extract JSON from the response
+        json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+        
+        if json_match:
+            exercises_json = json_match.group(1)
+        else:
+            exercises_json = content  # Assume the content is just JSON
+        
+        exercises = json.loads(exercises_json)
+        return exercises
+    except Exception as e:
+        raise Exception(f"Error in generate_exercises_with_claude: {str(e)}")
 
 
 def generate_exercises_with_openai(patient_data):
     """
     Generate exercises using OpenAI's GPT API
     """
-    # Get API key from Secret Manager
-    api_key = access_secret_version("openai-api-key")
-    
-    # Construct prompt similarly to Claude version
-    name = patient_data.get('name', 'the patient')
-    age = patient_data.get('age', 'unknown age')
-    frequency = patient_data.get('exercise_frequency', 'daily')
-    
-    pain_points_text = "No specific pain points mentioned."
-    if 'pain_points' in patient_data and len(patient_data['pain_points']) > 0:
-        pain_descriptions = [f"{pp.get('description', 'knee pain')} (severity: {pp.get('severity', 5)}/10)" 
-                           for pp in patient_data['pain_points']]
-        pain_points_text = "Pain points: " + "; ".join(pain_descriptions)
-    
-    prompt = f"""
-    I need to generate personalized knee rehabilitation exercises for a patient with the following profile:
-    
-    Name: {name}
-    Age: {age}
-    Exercise frequency: {frequency}
-    {pain_points_text}
-    
-    Please provide 3-5 evidence-based exercises appropriate for knee rehabilitation for this specific patient.
-    Consider standard physical therapy protocols and clinical practice guidelines.
-    
-    For each exercise, include:
-    1. A clear name
-    2. A concise description
-    3. Target joints (comma-separated list)
-    4. Step-by-step instructions (semicolon-separated list)
-    5. A URL for a representative video if available
-    
-    Format your response as JSON according to this structure:
-    [
-      {{
-        "name": "Exercise Name",
-        "description": "Brief description of the exercise",
-        "target_joints": ["knee", "ankle"],
-        "instructions": [
-          "Step 1",
-          "Step 2",
-          "Step 3"
-        ],
-        "video_url": "https://example.com/video.mp4"
-      }}
-    ]
-    
-    Respond ONLY with the JSON array and nothing else.
-    """
-    
-    # Call OpenAI API
-    response = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "gpt-4",
-            "messages": [
-                {"role": "system", "content": "You are a senior physical therapist specializing in knee rehabilitation."},
-                {"role": "user", "content": prompt}
+    try:
+        # Get API key from Secret Manager
+        api_key = access_secret_version("openai-api-key")
+        
+        # Construct prompt similarly to Claude version
+        name = patient_data.get('name', 'the patient')
+        age = patient_data.get('age', 'unknown age')
+        frequency = patient_data.get('exercise_frequency', 'daily')
+        
+        pain_points_text = "No specific pain points mentioned."
+        if 'pain_points' in patient_data and len(patient_data['pain_points']) > 0:
+            pain_descriptions = [f"{pp.get('description', 'knee pain')} (severity: {pp.get('severity', 5)}/10)" 
+                               for pp in patient_data['pain_points']]
+            pain_points_text = "Pain points: " + "; ".join(pain_descriptions)
+        
+        prompt = f"""
+        I need to generate personalized knee rehabilitation exercises for a patient with the following profile:
+        
+        Name: {name}
+        Age: {age}
+        Exercise frequency: {frequency}
+        {pain_points_text}
+        
+        Please provide 3-5 evidence-based exercises appropriate for knee rehabilitation for this specific patient.
+        Consider standard physical therapy protocols and clinical practice guidelines.
+        
+        For each exercise, include:
+        1. A clear name
+        2. A concise description
+        3. Target joints (comma-separated list)
+        4. Step-by-step instructions (semicolon-separated list)
+        5. A URL for a representative video if available
+        
+        Format your response as JSON according to this structure:
+        [
+          {{
+            "name": "Exercise Name",
+            "description": "Brief description of the exercise",
+            "target_joints": ["knee", "ankle"],
+            "instructions": [
+              "Step 1",
+              "Step 2",
+              "Step 3"
             ],
-            "temperature": 0.3,
-            "max_tokens": 2000
-        }
-    )
-    
-    # Parse response
-    if response.status_code != 200:
-        raise Exception(f"OpenAI API error: {response.text}")
-    
-    result = response.json()
-    content = result.get('choices', [{}])[0].get('message', {}).get('content', '[]')
-    
-    exercises = json.loads(content)
-    return exercises
+            "video_url": "https://example.com/video.mp4"
+          }}
+        ]
+        
+        Respond ONLY with the JSON array and nothing else.
+        """
+        
+        # Call OpenAI API
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "gpt-4",
+                "messages": [
+                    {"role": "system", "content": "You are a senior physical therapist specializing in knee rehabilitation."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 2000
+            }
+        )
+        
+        # Parse response
+        if response.status_code != 200:
+            raise Exception(f"OpenAI API error: {response.text}")
+        
+        result = response.json()
+        content = result.get('choices', [{}])[0].get('message', {}).get('content', '[]')
+        
+        exercises = json.loads(content)
+        return exercises
+    except Exception as e:
+        raise Exception(f"Error in generate_exercises_with_openai: {str(e)}")
 
 
 def save_exercises(exercises, patient_id):
