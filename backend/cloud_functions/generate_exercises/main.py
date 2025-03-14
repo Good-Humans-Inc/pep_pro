@@ -26,8 +26,8 @@ def access_secret_version(secret_id, version_id="latest"):
     # Strip whitespace and newlines to avoid issues with API keys
     return response.payload.data.decode("UTF-8").strip()
 
-# Initialize Firestore DB with explicit project and database
-db = firestore.Client(project='pep-pro', database='pep-pro')
+# Initialize Firestore DB (default)
+db = firestore.Client()
 
 @functions_framework.http
 def generate_exercises(request):
