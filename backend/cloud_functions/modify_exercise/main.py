@@ -11,6 +11,16 @@ db = firestore.Client()
 storage_client = storage.Client()
 bucket_name = "duoligo-pt-app-videos"  # This bucket should be created in GCP
 
+# Custom JSON encoder to handle datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        # Handle Firestore's DatetimeWithNanoseconds
+        if hasattr(obj, 'seconds') and hasattr(obj, 'nanos'):
+            return datetime.fromtimestamp(obj.seconds + obj.nanos/1e9).isoformat()
+        return super(DateTimeEncoder, self).default(obj)
+    
 @functions_framework.http
 def modify_exercise(request):
     """
@@ -50,7 +60,7 @@ def modify_exercise(request):
         request_json = request.get_json(silent=True)
         
         if not request_json or 'patient_exercise_id' not in request_json:
-            return (json.dumps({'error': 'Invalid request - missing patient_exercise_id'}), 400, headers)
+            return (json.dumps({'error': 'Invalid request - missing patient_exercise_id'}, cls=DateTimeEncoder), 400, headers)
         
         pt_id = request_json.get('pt_id')
         patient_id = request_json.get('patient_id')
@@ -63,7 +73,7 @@ def modify_exercise(request):
         patient_exercise_doc = patient_exercise_ref.get()
         
         if not patient_exercise_doc.exists:
-            return (json.dumps({'error': 'Patient exercise not found'}), 404, headers)
+            return (json.dumps({'error': 'Patient exercise not found'}, cls=DateTimeEncoder), 404, headers)
         
         # Get the exercise document
         patient_exercise_data = patient_exercise_doc.to_dict()
@@ -72,7 +82,7 @@ def modify_exercise(request):
         exercise_doc = exercise_ref.get()
         
         if not exercise_doc.exists:
-            return (json.dumps({'error': 'Exercise not found'}), 404, headers)
+            return (json.dumps({'error': 'Exercise not found'}, cls=DateTimeEncoder), 404, headers)
         
         exercise_data = exercise_doc.to_dict()
         
@@ -147,7 +157,7 @@ def modify_exercise(request):
                 })
                 
             except Exception as e:
-                return (json.dumps({'error': f'Error uploading video: {str(e)}'}), 500, headers)
+                return (json.dumps({'error': f'Error uploading video: {str(e)}'}, cls=DateTimeEncoder), 500, headers)
         
         # Get the updated exercise data to return
         updated_patient_exercise = patient_exercise_ref.get().to_dict()
@@ -162,7 +172,7 @@ def modify_exercise(request):
             'message': 'Exercise successfully modified'
         }
         
-        return (json.dumps(response), 200, headers)
+        return (json.dumps(response, cls=DateTimeEncoder), 200, headers)
         
     except Exception as e:
-        return (json.dumps({'error': f'Error modifying exercise: {str(e)}'}), 500, headers)
+        return (json.dumps({'error': f'Error modifying exercise: {str(e)}'}, cls=DateTimeEncoder), 500, headers)

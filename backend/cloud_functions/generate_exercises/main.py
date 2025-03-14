@@ -20,7 +20,7 @@ def access_secret_version(secret_id, version_id="latest"):
     """
     Access the secret from GCP Secret Manager
     """
-    client = secret_manager.SecretManagerServiceClient()
+    client = secretmanager.SecretManagerServiceClient()
     name = f"projects/{os.environ['PROJECT_ID']}/secrets/{secret_id}/versions/{version_id}"
     response = client.access_secret_version(request={"name": name})
     # Strip whitespace and newlines to avoid issues with API keys

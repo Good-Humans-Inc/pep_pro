@@ -13,6 +13,17 @@ db = firestore.Client()
 storage_client = storage.Client()
 bucket_name = "duoligo-pt-app-videos"  # This bucket should be created in GCP
 
+
+# Custom JSON encoder to handle datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        # Handle Firestore's DatetimeWithNanoseconds
+        if hasattr(obj, 'seconds') and hasattr(obj, 'nanos'):
+            return datetime.fromtimestamp(obj.seconds + obj.nanos/1e9).isoformat()
+        return super(DateTimeEncoder, self).default(obj)
+
 # Secret Manager setup
 def access_secret_version(secret_id, version_id="latest"):
     """
@@ -58,7 +69,7 @@ def add_custom_exercise(request):
         request_json = request.get_json(silent=True)
         
         if not request_json or 'exercise_name' not in request_json:
-            return (json.dumps({'error': 'Invalid request - missing exercise_name'}), 400, headers)
+            return (json.dumps({'error': 'Invalid request - missing exercise_name'}, cls=DateTimeEncoder), 400, headers)
         
         pt_id = request_json.get('pt_id')
         patient_id = request_json.get('patient_id')
@@ -112,7 +123,7 @@ def add_custom_exercise(request):
                 video_url = blob.public_url
                 
             except Exception as e:
-                return (json.dumps({'error': f'Error uploading video: {str(e)}'}), 500, headers)
+                return (json.dumps({'error': f'Error uploading video: {str(e)}'}, cls=DateTimeEncoder), 500, headers)
         
         # 4. Update exercise data with video URL and metadata
         exercise_data.update({
@@ -150,10 +161,10 @@ def add_custom_exercise(request):
             'message': 'Custom exercise successfully added'
         }
         
-        return (json.dumps(response), 200, headers)
+        return (json.dumps(response, cls=DateTimeEncoder), 200, headers)
         
     except Exception as e:
-        return (json.dumps({'error': f'Error adding custom exercise: {str(e)}'}), 500, headers)
+        return (json.dumps({'error': f'Error adding custom exercise: {str(e)}'}, cls=DateTimeEncoder), 500, headers)
 
 
 def generate_exercise_with_claude(exercise_name, voice_instructions=""):
