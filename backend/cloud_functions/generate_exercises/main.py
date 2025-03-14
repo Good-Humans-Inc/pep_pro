@@ -4,7 +4,8 @@ import uuid
 import os
 import requests
 import re
-from google.cloud import firestore, secret_manager
+from google.cloud import firestore
+from google.cloud import secretmanager
 from datetime import datetime
 
 # Custom JSON encoder to handle datetime objects
