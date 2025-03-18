@@ -25,17 +25,37 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         // Set notification delegate
         UNUserNotificationCenter.current().delegate = self
         
+        // Request notification permission
+        let authOptions: UNAuthorizationOptions = [.alert, .badge, .sound]
+        UNUserNotificationCenter.current().requestAuthorization(
+            options: authOptions,
+            completionHandler: { granted, error in
+                if granted {
+                    print("Notification permission granted")
+                } else {
+                    print("Notification permission denied: \(String(describing: error))")
+                }
+            }
+        )
+        
+        // Register for remote notifications
+        application.registerForRemoteNotifications()
+        
         return true
     }
     
+    // Handle registration for remote notifications
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         // Pass device token to Firebase
         Messaging.messaging().apnsToken = deviceToken
     }
     
+    // Handle failed registration
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         print("Failed to register for remote notifications: \(error.localizedDescription)")
     }
+    
+    // MARK: - MessagingDelegate
     
     // Handle notification when app is in foreground
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
@@ -60,14 +80,31 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     
     // MARK: - MessagingDelegate
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
-        print("Firebase registration token: \(String(describing: fcmToken))")
-        
-        // Store this token for sending notifications to this device
         if let token = fcmToken {
-            UserDefaults.standard.set(token, forKey: "fcmToken")
+            print("FCM registration token: \(token)")
             
-            // In a real app, you'd send this token to your server
-            // sendFCMTokenToServer(token)
+            // Store the token locally
+            UserDefaults.standard.set(token, forKey: "FCMToken")
+            
+            // Display the token in an alert for easy copying during development
+            #if DEBUG
+            DispatchQueue.main.async {
+                let alertController = UIAlertController(
+                    title: "FCM Token",
+                    message: token,
+                    preferredStyle: .alert
+                )
+                alertController.addAction(UIAlertAction(title: "Copy", style: .default) { _ in
+                    UIPasteboard.general.string = token
+                })
+                alertController.addAction(UIAlertAction(title: "OK", style: .cancel))
+                
+                // Get the current top view controller to present the alert
+                UIApplication.shared.windows.first?.rootViewController?.present(alertController, animated: true)
+            }
+            #endif
+        } else {
+            print("FCM token is nil")
         }
     }
 }
