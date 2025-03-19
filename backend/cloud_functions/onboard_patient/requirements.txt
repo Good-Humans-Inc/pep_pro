@@ -1,4 +1,6 @@
 # requirements.txt
-google-cloud-firestore==2.11.1
-google-cloud-storage==2.10.0
-functions-framework==3.3.0
+functions-framework>=2.0.0
+google-cloud-firestore>=2.0.0
+google-cloud-secretmanager>=2.0.0
+google-cloud-storage>=2.0.0
+requests>=2.0.0
