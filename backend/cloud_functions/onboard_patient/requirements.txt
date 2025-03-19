@@ -1,6 +1,6 @@
 # requirements.txt
 functions-framework>=2.0.0
 google-cloud-firestore>=2.0.0
-google-cloud-secretmanager>=2.0.0
+google-cloud-secret-manager>=2.0.0
 google-cloud-storage>=2.0.0
 requests>=2.0.0
