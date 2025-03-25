@@ -17,6 +17,7 @@ class VoiceManager: NSObject, ObservableObject {
     // Local speech synthesizer as fallback only
     private let speechSynthesizer = AVSpeechSynthesizer()
     
+    
     // ElevenLabs conversation
     private var conversation: ElevenLabsSDK.Conversation?
     

@@ -59,14 +59,3 @@ struct DogAnimation: View {
         }
     }
 }
-
-// Preview
-struct DogAnimation_Previews: PreviewProvider {
-    @State static var previewState: OnboardingView.AnimationState = .idle
-    
-    static var previews: some View {
-        DogAnimation(state: $previewState)
-            .frame(width: 300, height: 300)
-            .previewLayout(.sizeThatFits)
-    }
-}
