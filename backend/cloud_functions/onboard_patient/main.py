@@ -165,7 +165,7 @@ def process_structured_onboarding(request_data, headers):
             'name': name,
             'age': age,
             'pain_description': injury,
-            'pain_severity': pain_level,
+            'pain_level': pain_level,
             'exercise_frequency': frequency,
             'preferred_time': time_of_day,
             'notification_time': notification_time,
