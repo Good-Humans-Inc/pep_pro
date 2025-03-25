@@ -45,7 +45,7 @@ def onboard_patient(request):
     - name (str): Patient's name
     - age (int): Patient's age (5-100)
     - injury (str): Description of the injury or pain
-    - pain_level (int): Pain severity (1-10)
+    - pain_level (int): Pain level (1-10)
     - frequency (str): Exercise frequency (see VALID_FREQUENCIES)
     - time_of_day (str): Preferred exercise time (HH:MM in 24hr format)
     - notification_time (str): Notification time (HH:MM in 24hr format)
@@ -54,6 +54,9 @@ def onboard_patient(request):
     Optional fields:
     - fcm_token (str): Firebase Cloud Messaging token for notifications
     """
+    print("🪵 Raw request data:", request.get_data())
+    print("🧪 Parsed JSON:", request.get_json())
+
     # Enable CORS
     if request.method == 'OPTIONS':
         headers = {
@@ -92,7 +95,7 @@ def process_structured_onboarding(request_data, headers):
     - name (str): Patient's name
     - age (int): Patient's age (5-100)
     - injury (str): Description of the injury or pain
-    - pain_level (int): Pain severity (1-10)
+    - pain_level (int): Pain level (1-10)
     - frequency (str): Exercise frequency (see VALID_FREQUENCIES)
     - time_of_day (str): Preferred exercise time
     - notification_time (str): Notification time (HH:MM in 24hr format)
