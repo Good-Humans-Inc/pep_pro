@@ -2,10 +2,14 @@ import uuid
 import json
 import functions_framework
 import os
-import requests
-from google.cloud import firestore, storage, secretmanager
+import logging
+from google.cloud import firestore
 from datetime import datetime
 import re
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Custom JSON encoder to handle datetime objects
 class DateTimeEncoder(json.JSONEncoder):
@@ -20,40 +24,35 @@ class DateTimeEncoder(json.JSONEncoder):
 # Initialize Firestore DB
 db = firestore.Client()
 
-# Initialize Cloud Storage
-storage_client = storage.Client()
-bucket_name = "duoligo-pt-app-audio"  # Change to your actual bucket name for audio files
-
-# Secret Manager setup
-def access_secret_version(secret_id, version_id="latest"):
-    """
-    Access the secret from GCP Secret Manager
-    """
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{os.environ['PROJECT_ID']}/secrets/{secret_id}/versions/{version_id}"
-    response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("UTF-8").strip()
+# Valid frequency values
+VALID_FREQUENCIES = [
+    "daily",
+    "2 times a week",
+    "3 times a week", 
+    "4 times a week",
+    "5 times a week",
+    "6 times a week",
+    "everyday",
+    "every other day"
+]
 
 @functions_framework.http
 def onboard_patient(request):
     """
-    Cloud Function to handle patient onboarding.
-    Receives data from the iOS app, parses it, and stores in Firestore.
-    Also handles personalized audio generation when requested.
+    Cloud Function to handle patient onboarding with structured JSON only.
     
-    Request format for onboarding:
-    {
-        "voice_input": "My name is John, I'm 45 years old. My knee hurts when I climb stairs, 
-                        the pain is about 7 out of 10. I'd like to exercise daily. My goal is to play with my kids pain-free.",
-        "fcm_token": "firebase-cloud-messaging-token"  // Optional, for notifications
-    }
+    Required fields:
+    - name (str): Patient's name
+    - age (int): Patient's age (5-100)
+    - injury (str): Description of the injury or pain
+    - pain_level (int): Pain severity (1-10)
+    - frequency (str): Exercise frequency (see VALID_FREQUENCIES)
+    - time_of_day (str): Preferred exercise time (HH:MM in 24hr format)
+    - notification_time (str): Notification time (HH:MM in 24hr format)
+    - goal (str): Patient's recovery goal
     
-    Request format for personalized audio:
-    {
-        "prompt": "Generate a warm, friendly greeting for John from Pep the PT dog",
-        "voice_id": "K1pm982Vbt7xCZM8zYWJ",  // ElevenLabs voice ID
-        "stage": "name_confirmation"         // Used for organizing audio files
-    }
+    Optional fields:
+    - fcm_token (str): Firebase Cloud Messaging token for notifications
     """
     # Enable CORS
     if request.method == 'OPTIONS':
@@ -71,219 +70,122 @@ def onboard_patient(request):
         request_json = request.get_json(silent=True)
         
         if not request_json:
+            logger.error("Invalid request - missing JSON data")
             return (json.dumps({'error': 'Invalid request - missing data'}, cls=DateTimeEncoder), 400, headers)
         
-        # Determine what kind of request this is
-        if 'prompt' in request_json:
-            # This is a personalized audio generation request
-            return generate_personalized_audio(request_json, headers)
-        elif 'voice_input' in request_json:
-            # This is a patient onboarding request
-            return process_onboarding(request_json, headers)
-        else:
-            return (json.dumps({'error': 'Invalid request - unrecognized format'}, cls=DateTimeEncoder), 400, headers)
+        # Log incoming request for debugging
+        logger.info(f"Received request: {json.dumps(request_json)}")
+        
+        # Process structured JSON only
+        return process_structured_onboarding(request_json, headers)
             
     except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
         return (json.dumps({'error': f'Error processing request: {str(e)}'}, cls=DateTimeEncoder), 500, headers)
 
 
-def process_onboarding(request_data, headers):
+def process_structured_onboarding(request_data, headers):
     """
-    Process patient onboarding request
-    """
-    # Get the voice input and FCM token
-    voice_input = request_data['voice_input']
-    fcm_token = request_data.get('fcm_token', '')
+    Process structured JSON input for patient onboarding with validation.
     
-    # Parse the voice input
-    patient_data = parse_patient_data(voice_input)
-    
-    # Generate a unique ID for the patient
-    patient_id = str(uuid.uuid4())
-    
-    # Create patient document
-    patient_doc = {
-        'id': patient_id,
-        'name': patient_data['name'],
-        'age': patient_data['age'],
-        'exercise_frequency': patient_data['exercise_frequency'],
-        'goal': patient_data.get('goal', ''),
-        'fcm_token': fcm_token,
-        'created_at': datetime.now(),
-        'updated_at': datetime.now()
-    }
-    
-    # Save patient to Firestore
-    db.collection('patients').document(patient_id).set(patient_doc)
-    
-    # Create pain point document
-    if 'pain_description' in patient_data:
-        pain_point_id = str(uuid.uuid4())
-        pain_point = {
-            'id': pain_point_id,
-            'patient_id': patient_id,
-            'description': patient_data['pain_description'],
-            'severity': patient_data['pain_severity'],
-            'created_at': datetime.now()
-        }
-        
-        # Save pain point to Firestore
-        db.collection('pain_points').document(pain_point_id).set(pain_point)
-    
-    # Return success response with patient ID and data
-    response = {
-        'status': 'success',
-        'patient_id': patient_id,
-        'patient_data': patient_data,
-        'message': 'Patient successfully onboarded'
-    }
-    
-    return (json.dumps(response, cls=DateTimeEncoder), 200, headers)
-
-
-def generate_personalized_audio(request_data, headers):
-    """
-    Generate personalized audio using ElevenLabs API
-    """
-    prompt = request_data.get('prompt')
-    voice_id = request_data.get('voice_id', 'K1pm982Vbt7xCZM8zYWJ')  # Default ElevenLabs voice
-    stage = request_data.get('stage', 'generic')
-    
-    # Generate audio with ElevenLabs
-    audio_data, error = generate_elevenlabs_audio(prompt, voice_id)
-    
-    if error:
-        return (json.dumps({'error': f'Error generating audio: {error}'}, cls=DateTimeEncoder), 500, headers)
-    
-    # Upload audio to Cloud Storage
-    audio_url = upload_audio_to_storage(audio_data, stage)
-    
-    if not audio_url:
-        return (json.dumps({'error': 'Failed to upload audio to storage'}, cls=DateTimeEncoder), 500, headers)
-    
-    # Return success response with audio URL
-    response = {
-        'status': 'success',
-        'audio_url': audio_url,
-        'message': 'Audio generated successfully'
-    }
-    
-    return (json.dumps(response, cls=DateTimeEncoder), 200, headers)
-
-
-def generate_elevenlabs_audio(prompt, voice_id):
-    """
-    Generate audio using ElevenLabs API
+    Required fields:
+    - name (str): Patient's name
+    - age (int): Patient's age (5-100)
+    - injury (str): Description of the injury or pain
+    - pain_level (int): Pain severity (1-10)
+    - frequency (str): Exercise frequency (see VALID_FREQUENCIES)
+    - time_of_day (str): Preferred exercise time
+    - notification_time (str): Notification time (HH:MM in 24hr format)
+    - goal (str): Patient's recovery goal
     """
     try:
-        # Get API key from Secret Manager or use the provided one
+        # Extract fields
+        name = request_data.get('name')
+        age = request_data.get('age')
+        injury = request_data.get('injury')
+        pain_level = request_data.get('pain_level')
+        frequency = request_data.get('frequency')
+        time_of_day = request_data.get('time_of_day')
+        notification_time = request_data.get('notification_time')
+        goal = request_data.get('goal')
+        fcm_token = request_data.get('fcm_token', '')
+        
+        # Check for missing required fields
+        required_fields = ['name', 'age', 'injury', 'pain_level', 'frequency', 'time_of_day', 'notification_time', 'goal']
+        missing_fields = [field for field in required_fields if field not in request_data]
+        
+        if missing_fields:
+            error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+            logger.error(error_msg)
+            return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
+        
+        # Validate age (5-100)
         try:
-            elevenlabs_api_key = access_secret_version("elevenlabs-api-key")
-        except:
-            # Fall back to hardcoded key if secret isn't available
-            elevenlabs_api_key = "sk_4e6e7a71506b1ecddce0c73e92a9563cdc454e60c102fef0"
+            age = int(age)
+            if not (5 <= age <= 100):
+                error_msg = f"Age must be between 5 and 100, got {age}"
+                logger.error(error_msg)
+                return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
+        except (ValueError, TypeError):
+            error_msg = f"Age must be an integer between 5 and 100, got {age}"
+            logger.error(error_msg)
+            return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
         
-        # Call ElevenLabs API
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
-        headers = {
-            "xi-api-key": elevenlabs_api_key,
-            "Content-Type": "application/json"
+        # Validate pain level (1-10)
+        try:
+            pain_level = int(pain_level)
+            if not (1 <= pain_level <= 10):
+                error_msg = f"Pain level must be between 1 and 10, got {pain_level}"
+                logger.error(error_msg)
+                return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
+        except (ValueError, TypeError):
+            error_msg = f"Pain level must be an integer between 1 and 10, got {pain_level}"
+            logger.error(error_msg)
+            return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
+        
+        # Validate frequency
+        if frequency not in VALID_FREQUENCIES:
+            error_msg = f"Invalid frequency value. Must be one of: {', '.join(VALID_FREQUENCIES)}"
+            logger.error(error_msg)
+            return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
+        
+        # Validate notification_time format (HH:MM, 24hr)
+        if not re.match(r'^([01]\d|2[0-3]):([0-5]\d)$', notification_time):
+            error_msg = f"Invalid notification time format. Must be HH:MM in 24-hour format, got {notification_time}"
+            logger.error(error_msg)
+            return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
+            
+        # Create patient ID
+        patient_id = str(uuid.uuid4())
+        created_at = datetime.now()
+
+        # Create and store patient document
+        patient_doc = {
+            'id': patient_id,
+            'name': name,
+            'age': age,
+            'pain_description': injury,
+            'pain_severity': pain_level,
+            'exercise_frequency': frequency,
+            'preferred_time': time_of_day,
+            'notification_time': notification_time,
+            'goal': goal,
+            'fcm_token': fcm_token,
+            'created_at': created_at,
+            'updated_at': created_at
         }
-        payload = {
-            "text": prompt,
-            "model_id": "eleven_multilingual_v2"
-        }
-        
-        response = requests.post(url, headers=headers, json=payload)
-        
-        if response.status_code != 200:
-            return None, f"ElevenLabs API error: {response.text}"
-        
-        # Return audio data
-        return response.content, None
-        
+
+        # Save to Firestore
+        db.collection('patients').document(patient_id).set(patient_doc)
+        logger.info(f"Created patient with ID: {patient_id}")
+
+        # Return success response
+        return (json.dumps({
+            'status': 'success',
+            'message': 'Patient onboarded successfully',
+            'patient_id': patient_id
+        }, cls=DateTimeEncoder), 200, headers)
+
     except Exception as e:
-        return None, str(e)
-
-
-def upload_audio_to_storage(audio_data, stage):
-    """
-    Upload audio data to Google Cloud Storage and return public URL
-    """
-    try:
-        # Create a unique filename
-        filename = f"{stage}_{uuid.uuid4()}.mp3"
-        blob_name = f"personalized-audio/{stage}/{filename}"
-        
-        # Get the bucket
-        bucket = storage_client.bucket(bucket_name)
-        
-        # Create a new blob
-        blob = bucket.blob(blob_name)
-        
-        # Upload the audio
-        blob.upload_from_string(audio_data, content_type="audio/mpeg")
-        
-        # Make the blob publicly readable
-        blob.make_public()
-        
-        # Return the public URL
-        return blob.public_url
-        
-    except Exception as e:
-        print(f"Error uploading to storage: {str(e)}")
-        return None
-
-
-def parse_patient_data(voice_input):
-    """
-    Parse the voice input to extract patient data using regex patterns
-    """
-    data = {}
-    
-    # Extract name
-    name_match = re.search(r"(?:I'm|I am|My name is|name's|call me) ([A-Za-z]+)", voice_input)
-    if name_match:
-        data['name'] = name_match.group(1)
-    else:
-        data['name'] = "Unknown"
-    
-    # Extract age
-    age_match = re.search(r"(\d+)(?:\s+|\-)?(?:years?|yrs?)(?:\s+|\-)?old", voice_input)
-    if age_match:
-        data['age'] = int(age_match.group(1))
-    else:
-        data['age'] = 0
-    
-    # Extract pain description
-    pain_match = re.search(r"(?:my|the)?\s*(?:knee|pain|ache|experience)(?:\s+|\-)?(?:is|feels|hurts)?\s*([^.]+)", voice_input, re.IGNORECASE)
-    if pain_match:
-        data['pain_description'] = pain_match.group(1).strip()
-    
-    # Extract pain severity (1-10 scale)
-    severity_match = re.search(r"(?:pain|ache)(?:\s+|\-)?is\s*(?:about|around)?\s*(\d+)(?:\s+|\-)?(?:out of|\/)\s*10", voice_input, re.IGNORECASE)
-    if severity_match:
-        data['pain_severity'] = int(severity_match.group(1))
-    else:
-        data['pain_severity'] = 5  # Default to mid-scale if not specified
-    
-    # Extract exercise frequency
-    if re.search(r"(?:daily|every\s*day)", voice_input, re.IGNORECASE):
-        data['exercise_frequency'] = "daily"
-    elif re.search(r"(?:twice|2(?:\s+|\-)?times)(?:\s+|\-)?(?:a|per)(?:\s+|\-)?(?:day|daily)", voice_input, re.IGNORECASE):
-        data['exercise_frequency'] = "twice-daily"
-    elif re.search(r"(?:weekly|once(?:\s+|\-)?a(?:\s+|\-)?week)", voice_input, re.IGNORECASE):
-        data['exercise_frequency'] = "weekly"
-    elif re.search(r"(?:twice|2(?:\s+|\-)?times)(?:\s+|\-)?(?:a|per)(?:\s+|\-)?week", voice_input, re.IGNORECASE):
-        data['exercise_frequency'] = "twice-weekly"
-    elif re.search(r"(?:3|three)(?:\s+|\-)?times(?:\s+|\-)?(?:a|per)(?:\s+|\-)?week", voice_input, re.IGNORECASE):
-        data['exercise_frequency'] = "3x-weekly"
-    else:
-        data['exercise_frequency'] = "daily"  # Default if not specified
-    
-    # Extract goal
-    goal_match = re.search(r"(?:goal|aim|want|would like) (?:is |to )([^.]+)", voice_input, re.IGNORECASE)
-    if goal_match:
-        data['goal'] = goal_match.group(1).strip()
-    
-    return data
+        logger.error(f"Error in process_structured_onboarding: {str(e)}")
+        return (json.dumps({'error': f'Failed to onboard patient: {str(e)}'}, cls=DateTimeEncoder), 500, headers)
