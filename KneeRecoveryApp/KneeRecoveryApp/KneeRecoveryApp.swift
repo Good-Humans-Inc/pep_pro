@@ -116,14 +116,14 @@ struct KneeRecoveryApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     // State objects for managers
-    @StateObject private var cameraManager = CameraManager()
-    @StateObject private var visionManager = VisionManager()
-    @StateObject private var voiceManager = VoiceManager()
-    @StateObject private var speechRecognitionManager = SpeechRecognitionManager()
-    @StateObject private var resourceCoordinator = ResourceCoordinator()
+    @StateObject var cameraManager = CameraManager()
+    @StateObject var visionManager = VisionManager()
+    @StateObject var voiceManager = VoiceManager()
+    @StateObject var speechRecognitionManager = SpeechRecognitionManager()
+    @StateObject var resourceCoordinator = ResourceCoordinator()
     
     // State for onboarding
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = true
     
     // Environment object to monitor app lifecycle
     @Environment(\.scenePhase) private var scenePhase
@@ -131,25 +131,43 @@ struct KneeRecoveryApp: App {
     var body: some Scene {
         WindowGroup {
             if hasCompletedOnboarding {
-                LandingView()
-                    .environmentObject(cameraManager)
-                    .environmentObject(visionManager)
-                    .environmentObject(voiceManager)
-                    .environmentObject(speechRecognitionManager)
-                    .environmentObject(resourceCoordinator)
-                    .onAppear {
-                        resourceCoordinator.configure(
-                            cameraManager: cameraManager,
-                            visionManager: visionManager,
-                            voiceManager: voiceManager,
-                            speechRecognitionManager: speechRecognitionManager
-                        )
-                    }
+                NavigationView {
+                    LandingView()
+                        .environmentObject(cameraManager)
+                        .environmentObject(visionManager)
+                        .environmentObject(voiceManager)
+                        .environmentObject(speechRecognitionManager)
+                        .environmentObject(resourceCoordinator)
+                }
+                .environmentObject(cameraManager)
+                .environmentObject(visionManager)
+                .environmentObject(voiceManager)
+                .environmentObject(speechRecognitionManager)
+                .environmentObject(resourceCoordinator)
+                .onAppear {
+                    resourceCoordinator.configure(
+                        cameraManager: cameraManager,
+                        visionManager: visionManager,
+                        voiceManager: voiceManager,
+                        speechRecognitionManager: speechRecognitionManager
+                    )
+                    
+                    // Debug environment objects
+                    print("App initialized with environment objects:")
+                    print("- Camera Manager: \(cameraManager)")
+                    print("- Vision Manager: \(visionManager)")
+                    print("- Voice Manager: \(voiceManager)")
+                    print("- Speech Recognition Manager: \(speechRecognitionManager)")
+                    print("- Resource Coordinator: \(resourceCoordinator)")
+                }
             } else {
                 NavigationStack {
                     OnboardingView()
                         .environmentObject(voiceManager)
                         .environmentObject(resourceCoordinator)
+                        .environmentObject(cameraManager)
+                        .environmentObject(visionManager)
+                        .environmentObject(speechRecognitionManager)
                         .onDisappear {
                             hasCompletedOnboarding = true
                         }

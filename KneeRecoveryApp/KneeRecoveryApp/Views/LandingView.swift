@@ -67,14 +67,17 @@ extension View {
     }
 }
 
-// MARK: - LandingView Implementation
+// MARK: - LandingView is the list of exercises
 struct LandingView: View {
     @State private var exercises = Exercise.examples
     @State private var showingPermissionsAlert = false
     
+    // Environment objects
     @EnvironmentObject private var resourceCoordinator: ResourceCoordinator
     @EnvironmentObject private var voiceManager: VoiceManager
     @EnvironmentObject private var speechRecognitionManager: SpeechRecognitionManager
+    @EnvironmentObject private var cameraManager: CameraManager
+    @EnvironmentObject private var visionManager: VisionManager
     
     var body: some View {
         NavigationView {
@@ -82,12 +85,19 @@ struct LandingView: View {
                 if !exercises.isEmpty {
                     Section(header: Text("Your Recommended Exercises").font(.headline)) {
                         ForEach(exercises) { exercise in
-                            NavigationLink(destination: ExerciseDetailView(exercise: exercise)) {
+                            NavigationLink {
+                                // Destination view
+                                ExerciseDetailView(exercise: exercise)
+                                    .environmentObject(resourceCoordinator)
+                                    .environmentObject(voiceManager)
+                                    .environmentObject(speechRecognitionManager)
+                                    .environmentObject(cameraManager)
+                                    .environmentObject(visionManager)
+                            } label: {
+                                // Label view
                                 ExerciseCard(
                                     exercise: exercise,
                                     onAddNewExercise: {
-                                        // This function now comes from the environment
-                                        // The implementation is in the modifier
                                         showAddExerciseSheet()
                                     }
                                 )
@@ -105,7 +115,6 @@ struct LandingView: View {
             .navigationBarItems(
                 leading: ResetOnboardingButton(),
                 trailing: Button(action: {
-                    // Check permissions before continuing
                     checkPermissions()
                 }) {
                     Image(systemName: "info.circle")
