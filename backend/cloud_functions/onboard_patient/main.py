@@ -24,15 +24,17 @@ class DateTimeEncoder(json.JSONEncoder):
 # Initialize Firestore DB
 db = firestore.Client()
 
-# Valid frequency values
+# Valid frequency values - all lowercase for case-insensitive comparison
 VALID_FREQUENCIES = [
-    "Daily",
+    "Daily"
     "daily",
     "2 times a week",
     "3 times a week", 
     "4 times a week",
     "5 times a week",
     "6 times a week",
+    "everyday",
+    "every other day",
     "Everyday",
     "Every other day"
 ]
@@ -46,7 +48,7 @@ def onboard_patient(request):
     - name (str): Patient's name
     - age (int): Patient's age (5-100)
     - injury (str): Description of the injury or pain
-    - pain_level (int): Pain level (1-10)
+    - pain_level (int): Pain severity (1-10)
     - frequency (str): Exercise frequency (see VALID_FREQUENCIES)
     - time_of_day (str): Preferred exercise time (HH:MM in 24hr format)
     - notification_time (str): Notification time (HH:MM in 24hr format)
@@ -55,9 +57,6 @@ def onboard_patient(request):
     Optional fields:
     - fcm_token (str): Firebase Cloud Messaging token for notifications
     """
-    print("🪵 Raw request data:", request.get_data())
-    print("🧪 Parsed JSON:", request.get_json())
-
     # Enable CORS
     if request.method == 'OPTIONS':
         headers = {
@@ -75,7 +74,6 @@ def onboard_patient(request):
         
         if not request_json:
             logger.error("Invalid request - missing JSON data")
-            print("Invalid request - missing JSON data")
             return (json.dumps({'error': 'Invalid request - missing data'}, cls=DateTimeEncoder), 400, headers)
         
         # Log incoming request for debugging
@@ -86,7 +84,6 @@ def onboard_patient(request):
             
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
-        print(f"Error processing request: {str(e)}")
         return (json.dumps({'error': f'Error processing request: {str(e)}'}, cls=DateTimeEncoder), 500, headers)
 
 
@@ -98,7 +95,7 @@ def process_structured_onboarding(request_data, headers):
     - name (str): Patient's name
     - age (int): Patient's age (5-100)
     - injury (str): Description of the injury or pain
-    - pain_level (int): Pain level (1-10)
+    - pain_level (int): Pain severity (1-10)
     - frequency (str): Exercise frequency (see VALID_FREQUENCIES)
     - time_of_day (str): Preferred exercise time
     - notification_time (str): Notification time (HH:MM in 24hr format)
@@ -123,7 +120,6 @@ def process_structured_onboarding(request_data, headers):
         if missing_fields:
             error_msg = f"Missing required fields: {', '.join(missing_fields)}"
             logger.error(error_msg)
-            print(f"❌ {error_msg}")
             return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
         
         # Validate age (5-100)
@@ -132,12 +128,10 @@ def process_structured_onboarding(request_data, headers):
             if not (5 <= age <= 100):
                 error_msg = f"Age must be between 5 and 100, got {age}"
                 logger.error(error_msg)
-                print(f"❌ {error_msg}")
                 return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
         except (ValueError, TypeError):
             error_msg = f"Age must be an integer between 5 and 100, got {age}"
             logger.error(error_msg)
-            print(f"❌ {error_msg}")
             return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
         
         # Validate pain level (1-10)
@@ -146,25 +140,29 @@ def process_structured_onboarding(request_data, headers):
             if not (1 <= pain_level <= 10):
                 error_msg = f"Pain level must be between 1 and 10, got {pain_level}"
                 logger.error(error_msg)
-                print(f"❌ {error_msg}")
                 return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
         except (ValueError, TypeError):
             error_msg = f"Pain level must be an integer between 1 and 10, got {pain_level}"
             logger.error(error_msg)
-            print(f"❌ {error_msg}")
             return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
         
-        # Validate frequency
-        if frequency not in VALID_FREQUENCIES:
-            error_msg = f"Invalid frequency value. Must be one of: {', '.join(VALID_FREQUENCIES)}"
-            logger.error(error_msg)
-            print(f"❌ {error_msg}")
+        # Normalize and validate frequency (case-insensitive check)
+        if frequency is None:
+            frequency = ""
+            
+        # Convert to lowercase for case-insensitive validation
+        frequency_lower = frequency.lower()
+        
+        if frequency_lower not in VALID_FREQUENCIES:
+            # Log exact state for debugging
+            logger.error(f"Invalid frequency: '{frequency_lower}' not in {VALID_FREQUENCIES}")
+            valid_options = ", ".join(VALID_FREQUENCIES)
+            error_msg = f"Invalid frequency value. Must be one of: {valid_options}"
             return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
         
         # Validate notification_time format (HH:MM, 24hr)
         if not re.match(r'^([01]\d|2[0-3]):([0-5]\d)$', notification_time):
             error_msg = f"Invalid notification time format. Must be HH:MM in 24-hour format, got {notification_time}"
-            print(f"❌ {error_msg}")
             logger.error(error_msg)
             return (json.dumps({'error': error_msg}, cls=DateTimeEncoder), 400, headers)
             
@@ -178,8 +176,8 @@ def process_structured_onboarding(request_data, headers):
             'name': name,
             'age': age,
             'pain_description': injury,
-            'pain_level': pain_level,
-            'exercise_frequency': frequency,
+            'pain_severity': pain_level,
+            'exercise_frequency': frequency_lower,  # Store the normalized version
             'preferred_time': time_of_day,
             'notification_time': notification_time,
             'goal': goal,
@@ -201,5 +199,4 @@ def process_structured_onboarding(request_data, headers):
 
     except Exception as e:
         logger.error(f"Error in process_structured_onboarding: {str(e)}")
-        print(f"Error in process_structured_onboarding: {str(e)}")
         return (json.dumps({'error': f'Failed to onboard patient: {str(e)}'}, cls=DateTimeEncoder), 500, headers)
