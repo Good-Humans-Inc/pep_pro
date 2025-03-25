@@ -26,14 +26,15 @@ db = firestore.Client()
 
 # Valid frequency values
 VALID_FREQUENCIES = [
+    "Daily",
     "daily",
     "2 times a week",
     "3 times a week", 
     "4 times a week",
     "5 times a week",
     "6 times a week",
-    "everyday",
-    "every other day"
+    "Everyday",
+    "Every other day"
 ]
 
 @functions_framework.http
