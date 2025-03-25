@@ -26,7 +26,7 @@ db = firestore.Client()
 
 # Valid frequency values - all lowercase for case-insensitive comparison
 VALID_FREQUENCIES = [
-    "Daily"
+    "Daily",
     "daily",
     "2 times a week",
     "3 times a week", 
