@@ -383,8 +383,7 @@ struct ExerciseDetailView: View {
         
         // Construct the request body
         var requestBody: [String: Any] = [
-            "action": "modify",
-            "user_id": UserDefaults.standard.string(forKey: "user_id") ?? UUID().uuidString,
+            "pt_id": "pt-uuid", // Replace with actual PT ID or fetch from UserDefaults
             "patient_id": UserDefaults.standard.string(forKey: "PatientID") ?? UUID().uuidString,
             "patient_exercise_id": exercise.id.uuidString,
             "modifications": [
@@ -411,6 +410,12 @@ struct ExerciseDetailView: View {
             return
         }
         
+        // DEBUG: Print the raw JSON being sent
+        if let jsonString = String(data: jsonData, encoding: .utf8) {
+            print("🔍 MODIFY EXERCISE REQUEST JSON:")
+            print(jsonString)
+        }
+        
         // Create the URL request
         let urlString = "https://us-central1-pep-pro.cloudfunctions.net/modify_exercise"
         guard let url = URL(string: urlString) else {
@@ -424,55 +429,76 @@ struct ExerciseDetailView: View {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = jsonData
         
+        // DEBUG: Print details about the request
+        print("🚀 Sending request to: \(urlString)")
+        print("📋 Headers: \(request.allHTTPHeaderFields ?? [:])")
+        
         // Create the data task
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            // DEBUG: Log HTTP response details
+            if let httpResponse = response as? HTTPURLResponse {
+                print("📥 RESPONSE STATUS: \(httpResponse.statusCode)")
+                print("📥 RESPONSE HEADERS: \(httpResponse.allHeaderFields)")
+            }
+            
             DispatchQueue.main.async {
                 self.isUploading = false
                 
                 if let error = error {
+                    print("❌ NETWORK ERROR: \(error.localizedDescription)")
                     self.uploadError = "Network error: \(error.localizedDescription)"
                     return
                 }
                 
                 guard let httpResponse = response as? HTTPURLResponse else {
+                    print("❌ INVALID RESPONSE: Not an HTTP response")
                     self.uploadError = "Invalid response from server"
                     return
                 }
                 
-                if httpResponse.statusCode != 200 {
-                    self.uploadError = "Server error: HTTP \(httpResponse.statusCode)"
-                    if let data = data, let errorMessage = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let errorText = errorMessage["error"] as? String {
-                        self.uploadError = errorText
-                    }
+                guard let data = data else {
+                    print("❌ NO DATA: Response contained no data")
+                    self.uploadError = "No data received from server"
                     return
                 }
                 
-                guard let data = data else {
-                    self.uploadError = "No data received from server"
+                // DEBUG: Print raw response data
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("📥 RAW RESPONSE:")
+                    print(responseString)
+                }
+                
+                if httpResponse.statusCode != 200 {
+                    print("❌ ERROR STATUS CODE: \(httpResponse.statusCode)")
+                    self.uploadError = "Server error: HTTP \(httpResponse.statusCode)"
+                    if let errorMessage = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let errorText = errorMessage["error"] as? String {
+                        print("❌ ERROR MESSAGE: \(errorText)")
+                        self.uploadError = errorText
+                    }
                     return
                 }
                 
                 // Parse the response
                 do {
                     let responseDict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                    print("✅ PARSED RESPONSE: \(responseDict ?? [:])")
                     
                     if let status = responseDict?["status"] as? String, status == "success" {
-                        // Handle success - perhaps update the local exercise data
+                        // Handle success
+                        print("✅ MODIFICATION SUCCESSFUL")
                         if let exerciseData = responseDict?["exercise"] as? [String: Any],
                            let videoUrl = exerciseData["video_url"] as? String {
-                            // Update URL if a new video was saved
-                            // In a real app, you'd update the actual Exercise object or reload it
-                            print("Exercise updated with new video URL: \(videoUrl)")
+                            print("🎬 NEW VIDEO URL: \(videoUrl)")
                         }
                         
-                        // Display success feedback
-                        // You could use a toast message or other UI indicator here
                         self.uploadError = nil
                     } else {
+                        print("❌ MODIFICATION FAILED: \(responseDict?["error"] as? String ?? "Unknown error")")
                         self.uploadError = responseDict?["error"] as? String ?? "Unknown error"
                     }
                 } catch {
+                    print("❌ JSON PARSING ERROR: \(error.localizedDescription)")
                     self.uploadError = "Failed to parse response: \(error.localizedDescription)"
                 }
             }

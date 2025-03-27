@@ -14,7 +14,7 @@ enum AgentType {
         case .onboarding:
             return "lpwQ9rz6CHbfexAY8kU3"   // Onboarding agent ID
         case .exerciseCoach:
-            return "bTYeQZG2dLxDZp8vf7Pl"   // Exercise coach agent ID - replace with your actual ID
+            return "GEXRBIHrq3oa2fB0TO1v"   // Exercise coach agent ID - now vanilla
         }
     }
     
@@ -494,7 +494,7 @@ class VoiceManager: NSObject, ObservableObject {
         // Create request body
         let requestBody: [String: Any] = [
             "patient_id": patientId,
-            "llm_provider": "claude"  // Using Claude as specified in your requirements
+            "llm_provider": "openai"  // Can also use Claude
         ]
         
         // Convert to JSON data
