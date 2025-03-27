@@ -8,6 +8,7 @@ struct OnboardingView: View {
     @State private var isOnboardingComplete = false
     @State private var patientId: String? = nil
     @State private var isLoading = false
+    @State private var hasStartedAgent = false
     
     // Scroll view proxy for auto-scrolling to latest message
     @State private var scrollProxy: ScrollViewProxy? = nil
@@ -92,9 +93,12 @@ struct OnboardingView: View {
             // Configure audio session to use speaker
             configureAudioSession()
             
-            // Start the ElevenLabs onboarding agent
-            voiceManager.startOnboardingAgent()
-            print("Called voiceManager.startOnboardingAgent()")
+            // Start the ElevenLabs onboarding agent only if not already started
+            if !hasStartedAgent && !voiceManager.hasCompletedOnboarding {
+                hasStartedAgent = true
+                voiceManager.startOnboardingAgent()
+                print("Called voiceManager.startOnboardingAgent()")
+            }
             
             // Start with initial greeting
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -126,6 +130,17 @@ struct OnboardingView: View {
         .onChange(of: voiceManager.hasCompletedOnboarding) { _, completed in
             if completed && !isOnboardingComplete {
                 handleOnboardingComplete()
+            }
+        }
+        .onChange(of: isOnboardingComplete) { _, newValue in
+            if newValue {
+                // Ensure we don't restart the agent even if view reappears
+                hasStartedAgent = true
+                
+                // Double check that session is terminated
+                if voiceManager.isSessionActive {
+                    voiceManager.endElevenLabsSession()
+                }
             }
         }
         .navigationDestination(isPresented: $isOnboardingComplete) {
@@ -208,11 +223,14 @@ struct OnboardingView: View {
         // End the ElevenLabs session
         voiceManager.endElevenLabsSession()
         
-        // Mark onboarding as complete in UserDefaults
-        UserDefaults.standard.set(true, forKey: "HasCompletedOnboarding")
-        
-        // Set state to navigate
-        isOnboardingComplete = true
+        // Small delay to allow session to properly end
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Mark onboarding as complete in UserDefaults
+            UserDefaults.standard.set(true, forKey: "HasCompletedOnboarding")
+            
+            // Set state to navigate
+            isOnboardingComplete = true
+        }
     }
 }
 

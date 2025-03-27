@@ -189,7 +189,10 @@ struct LandingView: View {
                 loadExercises()
                 
                 // End any ongoing voice session
-                voiceManager.endElevenLabsSession()
+                if voiceManager.isSessionActive {
+                    print("⚠️ Unexpected active voice session in LandingView - ending it")
+                    voiceManager.endElevenLabsSession()
+                }
                 
                 // Optional: Check if permissions are already granted
                 resourceCoordinator.checkInitialPermissions()

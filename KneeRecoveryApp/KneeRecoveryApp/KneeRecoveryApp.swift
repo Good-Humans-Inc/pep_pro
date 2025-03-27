@@ -145,6 +145,13 @@ struct KneeRecoveryApp: App {
                 .environmentObject(speechRecognitionManager)
                 .environmentObject(resourceCoordinator)
                 .onAppear {
+                    
+                    // Ensure any lingering sessions are terminated
+                    if voiceManager.isSessionActive {
+                        print("⚠️ Terminating lingering voice session in LandingView")
+                        voiceManager.endElevenLabsSession()
+                    }
+                    
                     resourceCoordinator.configure(
                         cameraManager: cameraManager,
                         visionManager: visionManager,
@@ -169,7 +176,14 @@ struct KneeRecoveryApp: App {
                         .environmentObject(visionManager)
                         .environmentObject(speechRecognitionManager)
                         .onDisappear {
-                            hasCompletedOnboarding = true
+                            // Terminate any active sessions when view disappears
+                            if voiceManager.isSessionActive {
+                                print("⚠️ Terminating voice session on OnboardingView disappear")
+                                voiceManager.endElevenLabsSession()
+                            }
+                            
+                            // Update navigation state
+                            hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "HasCompletedOnboarding")
                         }
                 }
             }

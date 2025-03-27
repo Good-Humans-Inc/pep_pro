@@ -696,6 +696,20 @@ class VoiceManager: NSObject, ObservableObject {
     
     // Start the onboarding agent specifically
     func startOnboardingAgent() {
+        print("🔍 startOnboardingAgent called from: \(Thread.callStackSymbols)")
+        
+        // Extra guard to prevent starting if onboarding is complete or already in LandingView
+        guard !hasCompletedOnboarding else {
+            print("⛔️ Not starting onboarding agent - onboarding already completed")
+            return
+        }
+        
+        // Check if we're in the main app flow (not onboarding)
+        if UserDefaults.standard.bool(forKey: "HasCompletedOnboarding") {
+            print("⛔️ Not starting onboarding agent - user already in main app flow")
+            return
+        }
+        
         startElevenLabsSession(agentType: .onboarding)
     }
     
