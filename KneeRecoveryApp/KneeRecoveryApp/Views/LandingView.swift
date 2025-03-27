@@ -1,5 +1,15 @@
 import SwiftUI
 
+// Define Joint enum to replace BodyJointType for this view
+enum Joint: String, CaseIterable {
+    case leftKnee = "left_knee"
+    case rightKnee = "right_knee"
+    case leftAnkle = "left_ankle"
+    case rightAnkle = "right_ankle"
+    case leftHip = "left_hip"
+    case rightHip = "right_hip"
+}
+
 // MARK: - AddExerciseSheet View Modifier
 struct AddExerciseSheetModifier: ViewModifier {
     @Binding var exercises: [Exercise]
@@ -28,7 +38,7 @@ struct AddExerciseSheetModifier: ViewModifier {
             description: "Custom exercise added by you",
             imageURLString: nil,
             duration: 180,
-            targetJoints: [.leftKnee, .rightKnee],
+            targetJoints: [Joint.leftKnee, Joint.rightKnee],
             instructions: [
                 "This exercise will be customized by you",
                 "Add your own instructions in the exercise details"
@@ -38,8 +48,42 @@ struct AddExerciseSheetModifier: ViewModifier {
         // Add it to the exercises array
         exercises.append(newExercise)
         
-        // In a real app, you would also call your API here
-        // makeAPICall(name: name, voiceInstructions: voiceInstructions)
+        // Call API to add custom exercise
+        guard let patientId = UserDefaults.standard.string(forKey: "patient_id") else { return }
+        
+        let url = URL(string: "https://us-central1-pep-pro.cloudfunctions.net/add_custom_exercise")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "pt_id": "pt-uuid", // Replace with actual PT ID
+            "patient_id": patientId,
+            "exercise_name": name,
+            "llm_provider": "openai",
+            "voice_instructions": voiceInstructions
+        ]
+        
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("Error adding custom exercise: \(error)")
+                return
+            }
+            
+            guard let data = data else {
+                print("No data received from add exercise API")
+                return
+            }
+            
+            do {
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                print("Successfully added custom exercise: \(json ?? [:])")
+            } catch {
+                print("Error parsing add exercise response: \(error)")
+            }
+        }.resume()
     }
 }
 
@@ -69,20 +113,28 @@ extension View {
 
 // MARK: - LandingView is the list of exercises
 struct LandingView: View {
-    @State private var exercises = Exercise.examples
+    @State private var exercises = [Exercise]()
     @State private var showingPermissionsAlert = false
+    @State private var isLoadingExercises = false
     
     // Environment objects
-    @EnvironmentObject private var resourceCoordinator: ResourceCoordinator
-    @EnvironmentObject private var voiceManager: VoiceManager
-    @EnvironmentObject private var speechRecognitionManager: SpeechRecognitionManager
-    @EnvironmentObject private var cameraManager: CameraManager
-    @EnvironmentObject private var visionManager: VisionManager
+    @EnvironmentObject var resourceCoordinator: ResourceCoordinator
+    @EnvironmentObject var voiceManager: VoiceManager
+    @EnvironmentObject var speechRecognitionManager: SpeechRecognitionManager
+    @EnvironmentObject var cameraManager: CameraManager
+    @EnvironmentObject var visionManager: VisionManager
     
     var body: some View {
         NavigationView {
             List {
-                if !exercises.isEmpty {
+                if isLoadingExercises {
+                    HStack {
+                        Spacer()
+                        ProgressView("Loading exercises...")
+                        Spacer()
+                    }
+                    .padding()
+                } else if !exercises.isEmpty {
                     Section(header: Text("Your Recommended Exercises").font(.headline)) {
                         ForEach(exercises) { exercise in
                             NavigationLink {
@@ -133,8 +185,8 @@ struct LandingView: View {
                 )
             }
             .onAppear {
-                // Refresh exercises from the stored list
-                exercises = Exercise.examples
+                // Load exercises from the API or local storage
+                loadExercises()
                 
                 // End any ongoing voice session
                 voiceManager.endElevenLabsSession()
@@ -145,6 +197,168 @@ struct LandingView: View {
         }
         // Apply the custom modifier to handle add exercise sheet
         .withAddExerciseSheet(exercises: $exercises)
+    }
+    
+    private func loadExercises() {
+        isLoadingExercises = true
+        
+        // Check if we have a patient ID
+        guard let patientId = UserDefaults.standard.string(forKey: "PatientID") else {
+            // No patient ID, use example exercises
+            exercises = Exercise.examples
+            isLoadingExercises = false
+            return
+        }
+        
+        // Check if we have cached exercises
+        if let exercisesData = UserDefaults.standard.data(forKey: "PatientExercises"),
+           let exercisesJson = try? JSONSerialization.jsonObject(with: exercisesData) as? [[String: Any]] {
+            // Convert JSON to Exercise objects
+            exercises = exercisesJson.compactMap { exerciseDict -> Exercise? in
+                guard let name = exerciseDict["name"] as? String,
+                      let description = exerciseDict["description"] as? String else {
+                    return nil
+                }
+                
+                // Extract instructions
+                let instructions = (exerciseDict["instructions"] as? [String]) ?? []
+                
+                // Extract target joints
+                let targetJointsStrings = (exerciseDict["target_joints"] as? [String]) ?? []
+                let targetJoints = targetJointsStrings.compactMap { jointString -> Joint? in
+                    if jointString.contains("knee") {
+                        return jointString.contains("left") ? .leftKnee : .rightKnee
+                    } else if jointString.contains("ankle") {
+                        return jointString.contains("left") ? .leftAnkle : .rightAnkle
+                    } else if jointString.contains("hip") {
+                        return jointString.contains("left") ? .leftHip : .rightHip
+                    }
+                    return nil
+                }
+                
+                return Exercise(
+                    id: UUID(),
+                    name: name,
+                    description: description,
+                    imageURLString: exerciseDict["video_url"] as? String,
+                    duration: 180, // Default duration
+                    targetJoints: targetJoints.isEmpty ? [.leftKnee, .rightKnee] : targetJoints,
+                    instructions: instructions.isEmpty ? ["Follow the video instructions"] : instructions
+                )
+            }
+            
+            isLoadingExercises = false
+            
+            // If we couldn't convert any exercises, use examples
+            if exercises.isEmpty {
+                exercises = Exercise.examples
+            }
+        } else {
+            // No cached exercises, fetch from API
+            fetchExercisesFromAPI(patientId: patientId)
+        }
+    }
+    
+    private func fetchExercisesFromAPI(patientId: String) {
+        // API endpoint
+        guard let url = URL(string: "https://us-central1-pep-pro.cloudfunctions.net/generate_exercises") else {
+            self.exercises = Exercise.examples
+            self.isLoadingExercises = false
+            return
+        }
+        
+        // Create request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        // Request body
+        let requestBody: [String: Any] = [
+            "patient_id": patientId,
+            "llm_provider": "claude"
+        ]
+        
+        // Convert data to JSON
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            self.exercises = Exercise.examples
+            self.isLoadingExercises = false
+            return
+        }
+        
+        // Make API call
+        URLSession.shared.dataTask(with: request) { [self] data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("Error fetching exercises: \(error)")
+                    self.exercises = Exercise.examples
+                    self.isLoadingExercises = false
+                    return
+                }
+                
+                guard let data = data else {
+                    self.exercises = Exercise.examples
+                    self.isLoadingExercises = false
+                    return
+                }
+                
+                do {
+                    // Parse response
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let status = json["status"] as? String,
+                       status == "success",
+                       let exercisesJson = json["exercises"] as? [[String: Any]] {
+                        
+                        // Store exercises in UserDefaults
+                        if let exercisesData = try? JSONSerialization.data(withJSONObject: exercisesJson) {
+                            UserDefaults.standard.set(exercisesData, forKey: "PatientExercises")
+                        }
+                        
+                        // Convert JSON to Exercise objects
+                        let parsedExercises: [Exercise] = exercisesJson.compactMap { exerciseDict -> Exercise? in
+                            guard let name = exerciseDict["name"] as? String,
+                                  let description = exerciseDict["description"] as? String else {
+                                return nil
+                            }
+                            
+                            let instructions = (exerciseDict["instructions"] as? [String]) ?? []
+                            
+                            let targetJointsStrings = (exerciseDict["target_joints"] as? [String]) ?? []
+                            let targetJoints: [Joint] = targetJointsStrings.compactMap { jointString -> Joint? in
+                                if jointString.contains("knee") {
+                                    return jointString.contains("left") ? .leftKnee : .rightKnee
+                                } else if jointString.contains("ankle") {
+                                    return jointString.contains("left") ? .leftAnkle : .rightAnkle
+                                } else if jointString.contains("hip") {
+                                    return jointString.contains("left") ? .leftHip : .rightHip
+                                }
+                                return nil
+                            }
+                            
+                            return Exercise(
+                                id: UUID(),
+                                name: name,
+                                description: description,
+                                imageURLString: exerciseDict["video_url"] as? String,
+                                duration: 180,
+                                targetJoints: targetJoints.isEmpty ? [.leftKnee, .rightKnee] : targetJoints,
+                                instructions: instructions.isEmpty ? ["Follow the video instructions"] : instructions
+                            )
+                        }
+                        
+                        self.exercises = parsedExercises.isEmpty ? Exercise.examples : parsedExercises
+                    } else {
+                        self.exercises = Exercise.examples
+                    }
+                } catch {
+                    print("Error parsing exercises: \(error)")
+                    self.exercises = Exercise.examples
+                }
+                
+                self.isLoadingExercises = false
+            }
+        }.resume()
     }
     
     private func checkPermissions() {
@@ -175,5 +389,39 @@ struct ResetOnboardingButton: View {
         } message: {
             Text("This will restart the onboarding process.")
         }
+    }
+}
+
+// MARK: - Exercise Model Extension for compatibility with Joint enum
+extension Exercise {
+    // Convert from BodyJointType to Joint if needed
+    init(id: UUID = UUID(), name: String, description: String,
+         imageURLString: String? = nil, duration: TimeInterval = 180,
+         targetJoints: [Joint] = [], instructions: [String] = []) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.imageURL = imageURLString != nil ? URL(string: imageURLString!) : nil
+        self.duration = duration
+        
+        // Convert Joint to BodyJointType
+        self.targetJoints = targetJoints.compactMap { joint in
+            switch joint {
+            case .leftKnee:
+                return .leftKnee
+            case .rightKnee:
+                return .rightKnee
+            case .leftAnkle:
+                return .leftAnkle
+            case .rightAnkle:
+                return .rightAnkle
+            case .leftHip:
+                return .leftHip
+            case .rightHip:
+                return .rightHip
+            }
+        }
+        
+        self.instructions = instructions
     }
 }

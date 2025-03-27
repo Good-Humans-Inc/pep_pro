@@ -327,7 +327,7 @@ struct ExerciseListView: View {
             description: "Custom exercise added by you",
             imageURLString: nil,
             duration: 180,
-            targetJoints: [.leftKnee, .rightKnee],
+            targetJoints: [Joint.leftKnee, Joint.rightKnee],
             instructions: [
                 "This exercise will be customized by you",
                 "Add your own instructions in the exercise details"

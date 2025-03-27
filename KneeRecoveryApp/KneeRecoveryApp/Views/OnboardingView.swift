@@ -6,6 +6,8 @@ struct OnboardingView: View {
     @State private var animationState: AnimationState = .idle
     @State private var messages: [ConversationMessage] = []
     @State private var isOnboardingComplete = false
+    @State private var patientId: String? = nil
+    @State private var isLoading = false
     
     // Scroll view proxy for auto-scrolling to latest message
     @State private var scrollProxy: ScrollViewProxy? = nil
@@ -74,6 +76,12 @@ struct OnboardingView: View {
                 }
                 .padding(.top, 5)
                 .padding(.bottom, 10)
+                
+                // Loading indicator
+                if isLoading {
+                    ProgressView("Processing...")
+                        .padding()
+                }
             }
             .padding()
         }
@@ -101,6 +109,9 @@ struct OnboardingView: View {
         .onChange(of: voiceManager.lastSpokenText) { _, newText in
             if !newText.isEmpty {
                 addMessage(text: newText, isUser: false)
+                
+                // Check if this message contains the patient_id from onboarding
+                checkForPatientId(in: newText)
             }
         }
         .onChange(of: voiceManager.transcribedText) { _, newText in
@@ -119,50 +130,144 @@ struct OnboardingView: View {
     
     private func configureAudioSession() {
         do {
-            let audioSession = AVAudioSession.sharedInstance()
-            // Set the category with speaker option
-            try audioSession.setCategory(.playAndRecord,
-                                      mode: .spokenAudio,
-                                      options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
-            
-            // Activate the session
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-            
-            // Explicitly override the output to the speaker
-            try audioSession.overrideOutputAudioPort(.speaker)
-            
-            print("Audio session configured to force speaker output")
-            
-            let currentRoute = audioSession.currentRoute
-            for output in currentRoute.outputs {
-                print("Audio output port: \(output.portType), name: \(output.portName)")
-            }
+            try AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
+            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
-            print("Failed to configure audio session: \(error.localizedDescription)")
+            print("Failed to configure audio session: \(error)")
         }
     }
     
     private func addMessage(text: String, isUser: Bool) {
         let message = ConversationMessage(text: text, isUser: isUser)
         messages.append(message)
-        
-        // Check for completion cues in AI messages
-        if !isUser {
-            if text.contains("Let's get to work") ||
-               text.contains("line up some") ||
-               text.contains("make that slam dunk dream a reality") {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                    completeOnboarding()
+    }
+    
+    // Check for patient_id in the agent's response
+    private func checkForPatientId(in text: String) {
+        // Look for JSON-like content in the text
+        if let range = text.range(of: "{.*\"patient_id\"\\s*:\\s*\"([^\"]+)\".*}", options: .regularExpression) {
+            let jsonText = String(text[range])
+            
+            // Try to extract the patient_id using a more precise regex
+            if let idRange = jsonText.range(of: "\"patient_id\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
+                let idText = String(jsonText[idRange])
+                
+                // Extract just the UUID part
+                if let uuidRange = idText.range(of: "\"([^\"]+)\"", options: .regularExpression, range: idText.range(of: ":")!.upperBound..<idText.endIndex) {
+                    let uuidWithQuotes = String(idText[uuidRange])
+                    let uuid = uuidWithQuotes.replacingOccurrences(of: "\"", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    
+                    // Store the patient_id
+                    self.patientId = uuid
+                    UserDefaults.standard.set(uuid, forKey: "PatientID")
+                    print("Extracted patient UUID: \(uuid)")
+                    
+                    // Generate exercises with this ID
+                    isLoading = true
+                    generateExercises(for: uuid) { success in
+                        DispatchQueue.main.async {
+                            isLoading = false
+                            if success {
+                                isOnboardingComplete = true
+                            } else {
+                                // Show error message
+                                addMessage(text: "I'm sorry, there was an error generating your exercises. Please try again.", isUser: false)
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Alternative approach: try parsing as JSON
+                do {
+                    if let jsonData = jsonText.data(using: .utf8),
+                       let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                       let patientId = json["patient_id"] as? String {
+                        
+                        // Store the patient_id
+                        self.patientId = patientId
+                        UserDefaults.standard.set(patientId, forKey: "PatientID")
+                        print("Extracted patient UUID from JSON: \(patientId)")
+                        
+                        // Generate exercises with this ID
+                        isLoading = true
+                        generateExercises(for: patientId) { success in
+                            DispatchQueue.main.async {
+                                isLoading = false
+                                if success {
+                                    isOnboardingComplete = true
+                                } else {
+                                    // Show error message
+                                    addMessage(text: "I'm sorry, there was an error generating your exercises. Please try again.", isUser: false)
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    print("Error parsing JSON: \(error)")
                 }
             }
         }
     }
     
-    private func completeOnboarding() {
-        // Save any data if needed
+    private func generateExercises(for patientId: String, completion: @escaping (Bool) -> Void) {
+        // API endpoint
+        guard let url = URL(string: "https://us-central1-knee-recovery-app.cloudfunctions.net/generate_exercises") else {
+            completion(false)
+            return
+        }
         
-        // Navigate to main app
-        isOnboardingComplete = true
+        // Create request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        // Request body
+        let requestBody: [String: Any] = [
+            "patient_id": patientId,
+            "llm_provider": "claude"  // or "openai" based on your preference
+        ]
+        
+        // Convert data to JSON
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            print("Error creating request body: \(error)")
+            completion(false)
+            return
+        }
+        
+        // Make API call
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("Error generating exercises: \(error)")
+                completion(false)
+                return
+            }
+            
+            guard let data = data else {
+                print("No data received from exercise generation")
+                completion(false)
+                return
+            }
+            
+            do {
+                // Parse response
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let status = json["status"] as? String,
+                   status == "success" {
+                    // Store exercises in UserDefaults or a dedicated service
+                    if let exercisesData = try? JSONSerialization.data(withJSONObject: json["exercises"] ?? []) {
+                        UserDefaults.standard.set(exercisesData, forKey: "PatientExercises")
+                    }
+                    completion(true)
+                } else {
+                    completion(false)
+                }
+            } catch {
+                print("Error parsing exercise response: \(error)")
+                completion(false)
+            }
+        }.resume()
     }
 }
 

@@ -32,6 +32,41 @@
             border-radius: 5px;
             margin-bottom: 20px;
         }
+        #message-log {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+        .message {
+            margin-bottom: 8px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 8px;
+        }
+        .message.user {
+            color: #0066cc;
+        }
+        .message.agent {
+            color: #006600;
+        }
+        .message.system {
+            color: #cc6600;
+        }
+        .message.error {
+            color: #cc0000;
+        }
+        .json-data {
+            background-color: #e9f5f8;
+            border-left: 3px solid #0099cc;
+            padding: 5px;
+            margin: 5px 0;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -42,26 +77,172 @@
 
     <div class="status">
         <p>Status: <span id="connection-status">Waiting for connection...</span></p>
+        <button id="clear-log">Clear Log</button>
     </div>
 
     <div class="agent-container">
         <elevenlabs-convai agent-id="lpwQ9rz6CHbfexAY8kU3"></elevenlabs-convai>
     </div>
 
+    <h3>Message Log</h3>
+    <div id="message-log">Waiting for messages...</div>
+
     <script src="https://elevenlabs.io/convai-widget/index.js" async type="text/javascript"></script>
     
     <script>
+        // Initialize variables
+        let widget = null;
+        const messageLog = document.getElementById('message-log');
+        const statusSpan = document.getElementById('connection-status');
+        
+        // Function to add a message to the log
+        function logMessage(message, type = 'system') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            // Check if the message might contain JSON
+            if (typeof message === 'string' && 
+                ((message.startsWith('{') && message.endsWith('}')) || 
+                (message.startsWith('[') && message.endsWith(']')))) {
+                try {
+                    // Try to parse as JSON
+                    const jsonObj = JSON.parse(message);
+                    
+                    // Create a formatted representation
+                    const messageContent = document.createElement('div');
+                    messageContent.textContent = `${type.toUpperCase()}: `;
+                    
+                    const jsonContent = document.createElement('div');
+                    jsonContent.className = 'json-data';
+                    jsonContent.textContent = JSON.stringify(jsonObj, null, 2);
+                    
+                    messageDiv.appendChild(messageContent);
+                    messageDiv.appendChild(jsonContent);
+                    
+                    // Also log to console for inspection
+                    console.log(`JSON ${type}:`, jsonObj);
+                } catch (e) {
+                    // Not valid JSON, just log as text
+                    messageDiv.textContent = `${type.toUpperCase()}: ${message}`;
+                    console.log(`${type}:`, message);
+                }
+            } else {
+                // Regular message
+                messageDiv.textContent = `${type.toUpperCase()}: ${message}`;
+                console.log(`${type}:`, message);
+            }
+            
+            messageLog.appendChild(messageDiv);
+            messageLog.scrollTop = messageLog.scrollHeight;
+        }
+        
+        // Clear log button functionality
+        document.getElementById('clear-log').addEventListener('click', function() {
+            messageLog.innerHTML = 'Log cleared...';
+        });
+
+        // Intercept and log all messages by monkey-patching WebSocket
+        const originalWebSocket = window.WebSocket;
+        window.WebSocket = function(url, protocols) {
+            logMessage(`Opening WebSocket connection to: ${url}`, 'system');
+            
+            const socket = new originalWebSocket(url, protocols);
+            
+            // Intercept the send method
+            const originalSend = socket.send;
+            socket.send = function(data) {
+                // Log outgoing messages
+                logMessage(data, 'user');
+                return originalSend.apply(this, arguments);
+            };
+            
+            // Intercept incoming messages
+            socket.addEventListener('message', function(event) {
+                // Log incoming messages
+                logMessage(event.data, 'agent');
+                
+                // Check for specific patterns in the response
+                if (typeof event.data === 'string') {
+                    // Look for JSON data that may contain patient_id
+                    if (event.data.includes('patient_id')) {
+                        try {
+                            const jsonData = JSON.parse(event.data);
+                            if (jsonData.patient_id) {
+                                logMessage(`Found patient ID: ${jsonData.patient_id}`, 'system');
+                            }
+                        } catch (e) {
+                            // Try to extract patient_id using regex if JSON parsing fails
+                            const match = /"patient_id"\s*:\s*"([^"]+)"/.exec(event.data);
+                            if (match && match[1]) {
+                                logMessage(`Found patient ID: ${match[1]}`, 'system');
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Log connection states
+            socket.addEventListener('open', function() {
+                logMessage('WebSocket connection established', 'system');
+            });
+            
+            socket.addEventListener('close', function(event) {
+                logMessage(`WebSocket connection closed: Code ${event.code} - ${event.reason}`, 'system');
+            });
+            
+            socket.addEventListener('error', function(error) {
+                logMessage(`WebSocket error: ${error}`, 'error');
+            });
+            
+            return socket;
+        };
+
         // Monitor for connection success or failure
         window.addEventListener('load', function() {
+            logMessage('Page loaded, waiting for ElevenLabs widget...', 'system');
+            
             // Check every second to see if the widget loaded
             const checkInterval = setInterval(function() {
-                const widget = document.querySelector('elevenlabs-convai');
-                const statusSpan = document.getElementById('connection-status');
+                widget = document.querySelector('elevenlabs-convai');
                 
                 if (widget && widget.shadowRoot) {
                     // Widget is present and has rendered
                     statusSpan.textContent = "Connected successfully!";
                     statusSpan.style.color = "green";
+                    logMessage('ElevenLabs widget connected successfully', 'system');
+                    
+                    // Attempt to find and hook into the widget's internal message handlers
+                    try {
+                        // This is speculative and depends on the widget's internal structure
+                        const widgetInternals = widget.shadowRoot;
+                        logMessage('Successfully accessed widget shadow DOM', 'system');
+                        
+                        // Observe for changes in the widget DOM to capture messages
+                        const observer = new MutationObserver((mutations) => {
+                            mutations.forEach((mutation) => {
+                                if (mutation.type === 'childList' && mutation.addedNodes.length) {
+                                    // Log newly added message elements
+                                    mutation.addedNodes.forEach(node => {
+                                        if (node.classList && (node.classList.contains('user-message') || node.classList.contains('agent-message'))) {
+                                            const messageType = node.classList.contains('user-message') ? 'user' : 'agent';
+                                            const messageText = node.textContent;
+                                            logMessage(`DOM update - ${messageType}: ${messageText}`, 'system');
+                                        }
+                                    });
+                                }
+                            });
+                        });
+                        
+                        // Start observing the chat container
+                        const chatContainer = widgetInternals.querySelector('.chat-container');
+                        if (chatContainer) {
+                            observer.observe(chatContainer, { childList: true, subtree: true });
+                            logMessage('Observing chat container for messages', 'system');
+                        }
+                    } catch (e) {
+                        logMessage(`Error accessing widget internals: ${e.message}`, 'error');
+                    }
+                    
                     clearInterval(checkInterval);
                 }
                 
@@ -69,10 +250,10 @@
             
             // Set timeout for failure after 15 seconds
             setTimeout(function() {
-                const statusSpan = document.getElementById('connection-status');
                 if (statusSpan.textContent === "Waiting for connection...") {
                     statusSpan.textContent = "Connection failed or timed out";
                     statusSpan.style.color = "red";
+                    logMessage('Connection to ElevenLabs widget timed out', 'error');
                     clearInterval(checkInterval);
                 }
             }, 15000);
