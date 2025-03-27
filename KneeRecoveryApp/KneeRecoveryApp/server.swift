@@ -1,7 +1,7 @@
 import Foundation
 
 class ServerAPI {
-    private let baseURL = "https://your-cloud-run-url.run.app"
+    private let baseURL = "https://us-central1-pep-pro.cloudfunctions.net"
     private var patientID: String?
     
     func processVoiceInput(audioData: Data, completion: @escaping (Result<[Exercise], Error>) -> Void) {

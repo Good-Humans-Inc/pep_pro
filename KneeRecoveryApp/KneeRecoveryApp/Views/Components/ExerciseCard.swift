@@ -201,7 +201,7 @@ struct ExerciseListView: View {
             "user_id": UserDefaults.standard.string(forKey: "user_id") ?? UUID().uuidString,
             "patient_id": UserDefaults.standard.string(forKey: "patient_id") ?? UUID().uuidString,
             "exercise_name": name,
-            "llm_provider": "claude", // Default to Claude, could be made configurable
+            "llm_provider": "openai", // Default to openai, could be made configurable
             "voice_instructions": voiceInstructions
         ]
         
@@ -327,7 +327,7 @@ struct ExerciseListView: View {
             description: "Custom exercise added by you",
             imageURLString: nil,
             duration: 180,
-            targetJoints: [.leftKnee, .rightKnee],
+            targetJoints: [Joint.leftKnee, Joint.rightKnee],
             instructions: [
                 "This exercise will be customized by you",
                 "Add your own instructions in the exercise details"

@@ -21,16 +21,203 @@ struct ExerciseDetailView: View {
     @State private var isUploading = false
     @State private var uploadError: String? = nil
     
-    // Required environment objects
-    @EnvironmentObject var cameraManager: CameraManager
-    @EnvironmentObject var visionManager: VisionManager
-    @EnvironmentObject var voiceManager: VoiceManager
-    @EnvironmentObject var speechRecognitionManager: SpeechRecognitionManager
-    @EnvironmentObject var resourceCoordinator: ResourceCoordinator
+    // Coach state
+    @State private var coachMessages: [String] = []
+    @State private var showCoachFeedback = false
+    
+    @EnvironmentObject private var cameraManager: CameraManager
+    @EnvironmentObject private var visionManager: VisionManager
+    @EnvironmentObject private var voiceManager: VoiceManager
+    @EnvironmentObject private var speechRecognitionManager: SpeechRecognitionManager
+    @EnvironmentObject private var resourceCoordinator: ResourceCoordinator
     
     var body: some View {
         ZStack {
-            exerciseContent
+            // Camera feed with body pose visualization overlay when exercise is active
+            if isExerciseActive {
+                ZStack {
+                    // Camera view
+                    CameraPreview(session: cameraManager.session)
+                        .edgesIgnoringSafeArea(.all)
+                    
+                    // Body pose overlay
+                    BodyPoseView(bodyPose: visionManager.currentBodyPose)
+                        .edgesIgnoringSafeArea(.all)
+                    
+                    // Coach message bubble if there are messages
+                    if !coachMessages.isEmpty, showCoachFeedback {
+                        VStack {
+                            Text(coachMessages.last ?? "")
+                                .padding()
+                                .background(Color.white.opacity(0.8))
+                                .foregroundColor(.black)
+                                .cornerRadius(12)
+                                .padding(.horizontal)
+                                .padding(.top, 40)
+                            
+                            Spacer()
+                        }
+                    }
+                    
+                    // Timer and controls overlay
+                    VStack {
+                        Spacer()
+                        
+                        // Timer display
+                        Text(timeString(from: remainingTime))
+                            .font(.system(size: 48, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding()
+                            .background(Color.black.opacity(0.5))
+                            .cornerRadius(16)
+                        
+                        Spacer()
+                        
+                        // Stop button
+                        Button(action: {
+                            stopExercise()
+                        }) {
+                            HStack {
+                                Image(systemName: "stop.fill")
+                                Text("Stop Exercise")
+                            }
+                            .padding()
+                            .background(Color.red)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                        }
+                        .padding(.bottom, 32)
+                    }
+                }
+            } else {
+                // Exercise details and start button when not active
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Header with image
+                        if let imageURL = exercise.imageURL {
+                            AsyncImage(url: imageURL) { phase in
+                                switch phase {
+                                case .empty:
+                                    Rectangle()
+                                        .fill(Color.gray.opacity(0.2))
+                                        .aspectRatio(16/9, contentMode: .fit)
+                                        .overlay(ProgressView())
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(16/9, contentMode: .fit)
+                                case .failure:
+                                    Rectangle()
+                                        .fill(Color.gray.opacity(0.2))
+                                        .aspectRatio(16/9, contentMode: .fit)
+                                        .overlay(
+                                            Image(systemName: "photo")
+                                                .font(.largeTitle)
+                                        )
+                                @unknown default:
+                                    EmptyView()
+                                }
+                            }
+                            .cornerRadius(12)
+                        }
+                        
+                        // Exercise title and description
+                        Text(exercise.name)
+                            .font(.title)
+                            .fontWeight(.bold)
+                        
+                        Text(exercise.description)
+                            .foregroundColor(.secondary)
+                        
+                        // Modification controls - available for all users
+                        VStack(alignment: .leading, spacing: 8) {
+                            Divider()
+                            
+                            Text("Customize Exercise")
+                                .font(.headline)
+                                .foregroundColor(.blue)
+                            
+                            Button(action: {
+                                showingModifySheet = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "pencil")
+                                    Text("Modify Exercise")
+                                }
+                                .padding(10)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                            
+                            Button(action: {
+                                showingVideoRecorder = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "video.fill")
+                                    Text("Record Custom Video")
+                                }
+                                .padding(10)
+                                .background(Color.green.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                            
+                            if let error = uploadError {
+                                Text(error)
+                                    .foregroundColor(.red)
+                                    .font(.caption)
+                            }
+                            
+                            Divider()
+                        }
+                        
+                        // Target joints
+                        VStack(alignment: .leading) {
+                            Text("Target Areas")
+                                .font(.headline)
+                            
+                            HStack {
+                                ForEach(exercise.targetJoints, id: \.self) { joint in
+                                    Text(joint.rawValue)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(Color.blue.opacity(0.2))
+                                        .cornerRadius(8)
+                                }
+                            }
+                        }
+                        
+                        // Instructions
+                        VStack(alignment: .leading) {
+                            Text("Instructions")
+                                .font(.headline)
+                            
+                            ForEach(Array(exercise.instructions.enumerated()), id: \.offset) { index, instruction in
+                                HStack(alignment: .top) {
+                                    Text("\(index + 1).")
+                                        .fontWeight(.bold)
+                                    Text(instruction)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                        
+                        // Start button
+                        Button(action: {
+                            startExercise()
+                        }) {
+                            Text("Start Exercise")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.blue)
+                                .cornerRadius(12)
+                        }
+                        .padding(.top, 16)
+                    }
+                    .padding()
+                }
+            }
         }
         .navigationBarTitle("", displayMode: .inline)
         .navigationBarItems(trailing: isExerciseActive ? nil : Button(action: {
@@ -52,22 +239,12 @@ struct ExerciseDetailView: View {
                 notes: $modifiedNotes,
                 onSave: saveModifications
             )
-            .environmentObject(voiceManager)
-            .environmentObject(speechRecognitionManager)
-            .environmentObject(resourceCoordinator)
-            .environmentObject(cameraManager)
-            .environmentObject(visionManager)
         }
         .sheet(isPresented: $showingVideoRecorder) {
             ExerciseVideoRecorder(onVideoSaved: { url in
                 self.recordedVideoURL = url
                 saveModifications()
             })
-            .environmentObject(cameraManager)
-            .environmentObject(visionManager)
-            .environmentObject(voiceManager)
-            .environmentObject(speechRecognitionManager)
-            .environmentObject(resourceCoordinator)
         }
         .overlay(
             Group {
@@ -85,224 +262,43 @@ struct ExerciseDetailView: View {
                 }
             }
         )
+        .onAppear {
+            // Set up exercise coach notification observer
+            setupExerciseCoachObserver()
+        }
+        .onDisappear {
+            // Clean up notification observer
+            removeExerciseCoachObserver()
+        }
     }
     
-    // Split the content into a computed property to reduce complexity
-    private var exerciseContent: some View {
-        Group {
-            if isExerciseActive {
-                activeExerciseView
-            } else {
-                exerciseDetailsView
+    // Set up notification observer for the exercise coach
+    private func setupExerciseCoachObserver() {
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("ExerciseFeedback"),
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard let message = notification.userInfo?["message"] as? String else { return }
+            
+            // Add message to the coach messages
+            coachMessages.append(message)
+            
+            // Show the feedback
+            showCoachFeedback = true
+            
+            // Auto-hide after a delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                showCoachFeedback = false
             }
         }
     }
     
-    // Active exercise view with camera feed and pose detection
-    private var activeExerciseView: some View {
-        ZStack {
-            // Camera view
-            CameraPreview(session: cameraManager.session)
-                .edgesIgnoringSafeArea(.all)
-            
-            // Body pose overlay
-            BodyPoseView(bodyPose: visionManager.currentBodyPose)
-                .edgesIgnoringSafeArea(.all)
-            
-            // Timer and controls overlay
-            VStack {
-                Spacer()
-                
-                // Timer display
-                Text(timeString(from: remainingTime))
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .padding()
-                    .background(Color.black.opacity(0.5))
-                    .cornerRadius(16)
-                
-                Spacer()
-                
-                // Stop button
-                Button(action: {
-                    stopExercise()
-                }) {
-                    HStack {
-                        Image(systemName: "stop.fill")
-                        Text("Stop Exercise")
-                    }
-                    .padding()
-                    .background(Color.red)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
-                }
-                .padding(.bottom, 32)
-            }
-        }
+    // Remove notification observer
+    private func removeExerciseCoachObserver() {
+        NotificationCenter.default.removeObserver(self, name: Notification.Name("ExerciseFeedback"), object: nil)
     }
     
-    // Exercise details view when not active
-    private var exerciseDetailsView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Header with image
-                exerciseImageView
-                
-                // Exercise title and description
-                Text(exercise.name)
-                    .font(.title)
-                    .fontWeight(.bold)
-                
-                Text(exercise.description)
-                    .foregroundColor(.secondary)
-                
-                // Modification controls
-                modificationControlsView
-                
-                // Target joints
-                targetJointsView
-                
-                // Instructions
-                instructionsView
-                
-                // Start button
-                Button(action: {
-                    startExercise()
-                }) {
-                    Text("Start Exercise")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .cornerRadius(12)
-                }
-                .padding(.top, 16)
-            }
-            .padding()
-        }
-    }
-    
-    // Exercise image view
-    private var exerciseImageView: some View {
-        Group {
-            if let imageURL = exercise.imageURL {
-                AsyncImage(url: imageURL) { phase in
-                    switch phase {
-                    case .empty:
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.2))
-                            .aspectRatio(16/9, contentMode: .fit)
-                            .overlay(ProgressView())
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(16/9, contentMode: .fit)
-                    case .failure:
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.2))
-                            .aspectRatio(16/9, contentMode: .fit)
-                            .overlay(
-                                Image(systemName: "photo")
-                                    .font(.largeTitle)
-                            )
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
-                .cornerRadius(12)
-            } else {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.2))
-                    .aspectRatio(16/9, contentMode: .fit)
-                    .overlay(
-                        Image(systemName: "photo")
-                            .font(.largeTitle)
-                    )
-                    .cornerRadius(12)
-            }
-        }
-    }
-    
-    // Modification controls view
-    private var modificationControlsView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Divider()
-            
-            Text("Customize Exercise")
-                .font(.headline)
-                .foregroundColor(.blue)
-            
-            Button(action: {
-                showingModifySheet = true
-            }) {
-                HStack {
-                    Image(systemName: "pencil")
-                    Text("Modify Exercise")
-                }
-                .padding(10)
-                .background(Color.blue.opacity(0.1))
-                .cornerRadius(8)
-            }
-            
-            Button(action: {
-                showingVideoRecorder = true
-            }) {
-                HStack {
-                    Image(systemName: "video.fill")
-                    Text("Record Custom Video")
-                }
-                .padding(10)
-                .background(Color.green.opacity(0.1))
-                .cornerRadius(8)
-            }
-            
-            if let error = uploadError {
-                Text(error)
-                    .foregroundColor(.red)
-                    .font(.caption)
-            }
-            
-            Divider()
-        }
-    }
-    
-    // Target joints view
-    private var targetJointsView: some View {
-        VStack(alignment: .leading) {
-            Text("Target Areas")
-                .font(.headline)
-            
-            HStack {
-                ForEach(exercise.targetJoints, id: \.self) { joint in
-                    Text(joint.rawValue)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.blue.opacity(0.2))
-                        .cornerRadius(8)
-                }
-            }
-        }
-    }
-    
-    // Instructions view
-    private var instructionsView: some View {
-        VStack(alignment: .leading) {
-            Text("Instructions")
-                .font(.headline)
-            
-            ForEach(Array(exercise.instructions.enumerated()), id: \.offset) { index, instruction in
-                HStack(alignment: .top) {
-                    Text("\(index + 1).")
-                        .fontWeight(.bold)
-                    Text(instruction)
-                }
-                .padding(.vertical, 4)
-            }
-        }
-    }
-    
-    // Start exercise function
     private func startExercise() {
         // Begin coordinating resources
         resourceCoordinator.printAudioRouteInfo() // Check what audio devices are connected
@@ -314,8 +310,8 @@ struct ExerciseDetailView: View {
             cameraManager.startSession()
             visionManager.startProcessing(cameraManager.videoOutput)
             
-            // Start voice assistant
-            voiceManager.startElevenLabsSession()
+            // Start the exercise coach agent instead of the onboarding agent
+            voiceManager.startExerciseCoachAgent()
             
             // Start speech recognition
             speechRecognitionManager.startListening()
@@ -330,12 +326,20 @@ struct ExerciseDetailView: View {
                 }
             }
             
+            // Initialize coach messages
+            coachMessages = ["I'll help guide you through this exercise. Let me see your form..."]
+            showCoachFeedback = true
+            
+            // Auto-hide initial message after a few seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                showCoachFeedback = false
+            }
+            
             // Update UI
             isExerciseActive = true
         }
     }
     
-    // Stop exercise function
     private func stopExercise() {
         // Stop timer
         timer?.invalidate()
@@ -344,18 +348,22 @@ struct ExerciseDetailView: View {
         // Stop coordinating resources
         resourceCoordinator.stopExerciseSession()
         
+        // End the exercise coach session
+        voiceManager.endElevenLabsSession()
+        
+        // Clear coach messages
+        coachMessages = []
+        
         // Update UI
         isExerciseActive = false
     }
     
-    // Format time string
     private func timeString(from timeInterval: TimeInterval) -> String {
         let minutes = Int(timeInterval) / 60
         let seconds = Int(timeInterval) % 60
         return String(format: "%02d:%02d", minutes, seconds)
     }
     
-    // Save modifications function
     private func saveModifications() {
         // Show loading indicator
         isUploading = true
@@ -375,9 +383,8 @@ struct ExerciseDetailView: View {
         
         // Construct the request body
         var requestBody: [String: Any] = [
-            "action": "modify",
-            "user_id": UserDefaults.standard.string(forKey: "user_id") ?? UUID().uuidString,
-            "patient_id": UserDefaults.standard.string(forKey: "patient_id") ?? UUID().uuidString,
+            "pt_id": "pt-uuid", // Replace with actual PT ID or fetch from UserDefaults
+            "patient_id": UserDefaults.standard.string(forKey: "PatientID") ?? UUID().uuidString,
             "patient_exercise_id": exercise.id.uuidString,
             "modifications": [
                 "frequency": self.modifiedFrequency,
@@ -403,8 +410,14 @@ struct ExerciseDetailView: View {
             return
         }
         
+        // DEBUG: Print the raw JSON being sent
+        if let jsonString = String(data: jsonData, encoding: .utf8) {
+            print("🔍 MODIFY EXERCISE REQUEST JSON:")
+            print(jsonString)
+        }
+        
         // Create the URL request
-        let urlString = "https://us-central1-duoligo-pt-app.cloudfunctions.net/manage_exercise"
+        let urlString = "https://us-central1-pep-pro.cloudfunctions.net/modify_exercise"
         guard let url = URL(string: urlString) else {
             self.uploadError = "Invalid API URL"
             self.isUploading = false
@@ -416,55 +429,76 @@ struct ExerciseDetailView: View {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = jsonData
         
+        // DEBUG: Print details about the request
+        print("🚀 Sending request to: \(urlString)")
+        print("📋 Headers: \(request.allHTTPHeaderFields ?? [:])")
+        
         // Create the data task
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            // DEBUG: Log HTTP response details
+            if let httpResponse = response as? HTTPURLResponse {
+                print("📥 RESPONSE STATUS: \(httpResponse.statusCode)")
+                print("📥 RESPONSE HEADERS: \(httpResponse.allHeaderFields)")
+            }
+            
             DispatchQueue.main.async {
                 self.isUploading = false
                 
                 if let error = error {
+                    print("❌ NETWORK ERROR: \(error.localizedDescription)")
                     self.uploadError = "Network error: \(error.localizedDescription)"
                     return
                 }
                 
                 guard let httpResponse = response as? HTTPURLResponse else {
+                    print("❌ INVALID RESPONSE: Not an HTTP response")
                     self.uploadError = "Invalid response from server"
                     return
                 }
                 
-                if httpResponse.statusCode != 200 {
-                    self.uploadError = "Server error: HTTP \(httpResponse.statusCode)"
-                    if let data = data, let errorMessage = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let errorText = errorMessage["error"] as? String {
-                        self.uploadError = errorText
-                    }
+                guard let data = data else {
+                    print("❌ NO DATA: Response contained no data")
+                    self.uploadError = "No data received from server"
                     return
                 }
                 
-                guard let data = data else {
-                    self.uploadError = "No data received from server"
+                // DEBUG: Print raw response data
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("📥 RAW RESPONSE:")
+                    print(responseString)
+                }
+                
+                if httpResponse.statusCode != 200 {
+                    print("❌ ERROR STATUS CODE: \(httpResponse.statusCode)")
+                    self.uploadError = "Server error: HTTP \(httpResponse.statusCode)"
+                    if let errorMessage = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let errorText = errorMessage["error"] as? String {
+                        print("❌ ERROR MESSAGE: \(errorText)")
+                        self.uploadError = errorText
+                    }
                     return
                 }
                 
                 // Parse the response
                 do {
                     let responseDict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                    print("✅ PARSED RESPONSE: \(responseDict ?? [:])")
                     
                     if let status = responseDict?["status"] as? String, status == "success" {
-                        // Handle success - perhaps update the local exercise data
+                        // Handle success
+                        print("✅ MODIFICATION SUCCESSFUL")
                         if let exerciseData = responseDict?["exercise"] as? [String: Any],
                            let videoUrl = exerciseData["video_url"] as? String {
-                            // Update URL if a new video was saved
-                            // In a real app, you'd update the actual Exercise object or reload it
-                            print("Exercise updated with new video URL: \(videoUrl)")
+                            print("🎬 NEW VIDEO URL: \(videoUrl)")
                         }
                         
-                        // Display success feedback
-                        // You could use a toast message or other UI indicator here
                         self.uploadError = nil
                     } else {
+                        print("❌ MODIFICATION FAILED: \(responseDict?["error"] as? String ?? "Unknown error")")
                         self.uploadError = responseDict?["error"] as? String ?? "Unknown error"
                     }
                 } catch {
+                    print("❌ JSON PARSING ERROR: \(error.localizedDescription)")
                     self.uploadError = "Failed to parse response: \(error.localizedDescription)"
                 }
             }
