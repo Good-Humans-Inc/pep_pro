@@ -275,7 +275,7 @@ struct LandingView: View {
         // Request body
         let requestBody: [String: Any] = [
             "patient_id": patientId,
-            "llm_provider": "claude"
+            "llm_provider": "openai"
         ]
         
         // Convert data to JSON
@@ -373,6 +373,7 @@ struct LandingView: View {
 struct ResetOnboardingButton: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showingConfirmation = false
+    @EnvironmentObject private var voiceManager: VoiceManager
     
     var body: some View {
         Button(action: {
@@ -383,6 +384,7 @@ struct ResetOnboardingButton: View {
         }
         .confirmationDialog("Reset Onboarding?", isPresented: $showingConfirmation) {
             Button("Reset", role: .destructive) {
+                voiceManager.resetOnboarding()
                 hasCompletedOnboarding = false
             }
             Button("Cancel", role: .cancel) {}

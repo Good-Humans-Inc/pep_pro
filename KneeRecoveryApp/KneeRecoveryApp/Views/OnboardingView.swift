@@ -86,17 +86,24 @@ struct OnboardingView: View {
             .padding()
         }
         .onAppear {
+            // Set up notification observers
+            setupNotificationObservers()
+            
             // Configure audio session to use speaker
             configureAudioSession()
             
-            // Start the ElevenLabs session
-            voiceManager.startElevenLabsSession()
-            print("Called voiceManager.startElevenLabsSession()")
+            // Start the ElevenLabs onboarding agent
+            voiceManager.startOnboardingAgent()
+            print("Called voiceManager.startOnboardingAgent()")
             
             // Start with initial greeting
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 animationState = .speaking
             }
+        }
+        .onDisappear {
+            // Clean up notification observers
+            removeNotificationObservers()
         }
         .onChange(of: voiceManager.isSpeaking) { _, isSpeaking in
             animationState = isSpeaking ? .speaking : .listening
@@ -109,14 +116,16 @@ struct OnboardingView: View {
         .onChange(of: voiceManager.lastSpokenText) { _, newText in
             if !newText.isEmpty {
                 addMessage(text: newText, isUser: false)
-                
-                // Check if this message contains the patient_id from onboarding
-                checkForPatientId(in: newText)
             }
         }
         .onChange(of: voiceManager.transcribedText) { _, newText in
             if !newText.isEmpty {
                 addMessage(text: newText, isUser: true)
+            }
+        }
+        .onChange(of: voiceManager.hasCompletedOnboarding) { _, completed in
+            if completed && !isOnboardingComplete {
+                handleOnboardingComplete()
             }
         }
         .navigationDestination(isPresented: $isOnboardingComplete) {
@@ -127,6 +136,45 @@ struct OnboardingView: View {
     }
     
     // MARK: - Helper Methods
+    
+    private func setupNotificationObservers() {
+        // Listen for when patient ID is received
+        NotificationCenter.default.addObserver(
+            forName: VoiceManager.patientIdReceivedNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let patientId = notification.userInfo?["patient_id"] as? String {
+                self.patientId = patientId
+                animationState = .thinking
+                addMessage(text: "Thanks for sharing that information. I'm generating personalized exercises for you now...", isUser: false)
+            }
+        }
+        
+        // Listen for when exercises are generated
+        NotificationCenter.default.addObserver(
+            forName: VoiceManager.exercisesGeneratedNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            handleExercisesGenerated()
+        }
+        
+        // Listen for when onboarding is completed
+        NotificationCenter.default.addObserver(
+            forName: VoiceManager.onboardingCompletedNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            handleOnboardingComplete()
+        }
+    }
+    
+    private func removeNotificationObservers() {
+        NotificationCenter.default.removeObserver(self, name: VoiceManager.patientIdReceivedNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: VoiceManager.exercisesGeneratedNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: VoiceManager.onboardingCompletedNotification, object: nil)
+    }
     
     private func configureAudioSession() {
         do {
@@ -142,132 +190,29 @@ struct OnboardingView: View {
         messages.append(message)
     }
     
-    // Check for patient_id in the agent's response
-    private func checkForPatientId(in text: String) {
-        // Look for JSON-like content in the text
-        if let range = text.range(of: "{.*\"patient_id\"\\s*:\\s*\"([^\"]+)\".*}", options: .regularExpression) {
-            let jsonText = String(text[range])
-            
-            // Try to extract the patient_id using a more precise regex
-            if let idRange = jsonText.range(of: "\"patient_id\"\\s*:\\s*\"([^\"]+)\"", options: .regularExpression) {
-                let idText = String(jsonText[idRange])
-                
-                // Extract just the UUID part
-                if let uuidRange = idText.range(of: "\"([^\"]+)\"", options: .regularExpression, range: idText.range(of: ":")!.upperBound..<idText.endIndex) {
-                    let uuidWithQuotes = String(idText[uuidRange])
-                    let uuid = uuidWithQuotes.replacingOccurrences(of: "\"", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    
-                    // Store the patient_id
-                    self.patientId = uuid
-                    UserDefaults.standard.set(uuid, forKey: "PatientID")
-                    print("Extracted patient UUID: \(uuid)")
-                    
-                    // Generate exercises with this ID
-                    isLoading = true
-                    generateExercises(for: uuid) { success in
-                        DispatchQueue.main.async {
-                            isLoading = false
-                            if success {
-                                isOnboardingComplete = true
-                            } else {
-                                // Show error message
-                                addMessage(text: "I'm sorry, there was an error generating your exercises. Please try again.", isUser: false)
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Alternative approach: try parsing as JSON
-                do {
-                    if let jsonData = jsonText.data(using: .utf8),
-                       let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                       let patientId = json["patient_id"] as? String {
-                        
-                        // Store the patient_id
-                        self.patientId = patientId
-                        UserDefaults.standard.set(patientId, forKey: "PatientID")
-                        print("Extracted patient UUID from JSON: \(patientId)")
-                        
-                        // Generate exercises with this ID
-                        isLoading = true
-                        generateExercises(for: patientId) { success in
-                            DispatchQueue.main.async {
-                                isLoading = false
-                                if success {
-                                    isOnboardingComplete = true
-                                } else {
-                                    // Show error message
-                                    addMessage(text: "I'm sorry, there was an error generating your exercises. Please try again.", isUser: false)
-                                }
-                            }
-                        }
-                    }
-                } catch {
-                    print("Error parsing JSON: \(error)")
-                }
-            }
+    private func handleExercisesGenerated() {
+        isLoading = false
+        addMessage(text: "Your personalized exercises are ready! Let's get started with your knee recovery journey.", isUser: false)
+        
+        // Wait a moment to show the message before proceeding
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            handleOnboardingComplete()
         }
     }
     
-    private func generateExercises(for patientId: String, completion: @escaping (Bool) -> Void) {
-        // API endpoint
-        guard let url = URL(string: "https://us-central1-knee-recovery-app.cloudfunctions.net/generate_exercises") else {
-            completion(false)
-            return
-        }
+    private func handleOnboardingComplete() {
+        guard !isOnboardingComplete else { return }
         
-        // Create request
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        print("Onboarding complete, ending onboarding agent session and transitioning to Landing View")
         
-        // Request body
-        let requestBody: [String: Any] = [
-            "patient_id": patientId,
-            "llm_provider": "claude"  // or "openai" based on your preference
-        ]
+        // End the ElevenLabs session
+        voiceManager.endElevenLabsSession()
         
-        // Convert data to JSON
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        } catch {
-            print("Error creating request body: \(error)")
-            completion(false)
-            return
-        }
+        // Mark onboarding as complete in UserDefaults
+        UserDefaults.standard.set(true, forKey: "HasCompletedOnboarding")
         
-        // Make API call
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                print("Error generating exercises: \(error)")
-                completion(false)
-                return
-            }
-            
-            guard let data = data else {
-                print("No data received from exercise generation")
-                completion(false)
-                return
-            }
-            
-            do {
-                // Parse response
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let status = json["status"] as? String,
-                   status == "success" {
-                    // Store exercises in UserDefaults or a dedicated service
-                    if let exercisesData = try? JSONSerialization.data(withJSONObject: json["exercises"] ?? []) {
-                        UserDefaults.standard.set(exercisesData, forKey: "PatientExercises")
-                    }
-                    completion(true)
-                } else {
-                    completion(false)
-                }
-            } catch {
-                print("Error parsing exercise response: \(error)")
-                completion(false)
-            }
-        }.resume()
+        // Set state to navigate
+        isOnboardingComplete = true
     }
 }
 
