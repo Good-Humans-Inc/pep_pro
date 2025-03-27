@@ -17,6 +17,10 @@ struct ExerciseDetailView: View {
     @State private var modifiedNotes = ""
     @State private var recordedVideoURL: URL? = nil
     
+    // Exercise report states
+    @State private var showingExerciseReport = false
+    @State private var exerciseDuration: TimeInterval = 0
+    
     // API connection states
     @State private var isUploading = false
     @State private var uploadError: String? = nil
@@ -246,6 +250,14 @@ struct ExerciseDetailView: View {
                 saveModifications()
             })
         }
+        .sheet(isPresented: $showingExerciseReport) {
+            ExerciseReportView(
+                exercise: exercise,
+                duration: exerciseDuration,
+                date: Date()
+            )
+            .environmentObject(voiceManager)
+        }
         .overlay(
             Group {
                 if isUploading {
@@ -280,6 +292,10 @@ struct ExerciseDetailView: View {
             queue: .main
         ) { notification in
             guard let message = notification.userInfo?["message"] as? String else { return }
+//            guard let feedbackData = notification.userInfo?["feedback"] as? ExerciseFeedbackData else { return }
+//            
+//            // When feedback is received, we could use it later for the report
+//            self.exerciseFeedbackData = feedbackData
             
             // Add message to the coach messages
             coachMessages.append(message)
@@ -341,6 +357,9 @@ struct ExerciseDetailView: View {
     }
     
     private func stopExercise() {
+        let actualDuration = exercise.duration - remainingTime
+        exerciseDuration = actualDuration
+        
         // Stop timer
         timer?.invalidate()
         timer = nil
@@ -356,6 +375,9 @@ struct ExerciseDetailView: View {
         
         // Update UI
         isExerciseActive = false
+        
+        // Show exercise report
+        showingExerciseReport = true
     }
     
     private func timeString(from timeInterval: TimeInterval) -> String {

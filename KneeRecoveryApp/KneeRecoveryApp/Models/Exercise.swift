@@ -8,10 +8,12 @@ struct Exercise: Identifiable {
     let duration: TimeInterval
     let targetJoints: [BodyJointType]
     let instructions: [String]
+    let firestoreId: String?
     
     init(id: UUID = UUID(), name: String, description: String,
          imageURLString: String? = nil, duration: TimeInterval = 180,
-         targetJoints: [BodyJointType] = [], instructions: [String] = []) {
+         targetJoints: [BodyJointType] = [], instructions: [String] = [],
+         firestoreId: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -19,6 +21,7 @@ struct Exercise: Identifiable {
         self.duration = duration
         self.targetJoints = targetJoints
         self.instructions = instructions
+        self.firestoreId = firestoreId
     }
 }
 

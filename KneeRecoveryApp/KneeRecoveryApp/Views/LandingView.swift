@@ -402,12 +402,14 @@ extension Exercise {
     // Convert from BodyJointType to Joint if needed
     init(id: UUID = UUID(), name: String, description: String,
          imageURLString: String? = nil, duration: TimeInterval = 180,
-         targetJoints: [Joint] = [], instructions: [String] = []) {
+         targetJoints: [Joint] = [], instructions: [String] = [],
+         firestoreId: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
         self.imageURL = imageURLString != nil ? URL(string: imageURLString!) : nil
         self.duration = duration
+        self.firestoreId = firestoreId
         
         // Convert Joint to BodyJointType
         self.targetJoints = targetJoints.compactMap { joint in
