@@ -122,6 +122,8 @@ class ResourceCoordinator: NSObject, ObservableObject {
             
             // Set up a single audio session for everything
             do {
+                try self.audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+                
                 // This is the key configuration that works for both speech and audio
                 try self.audioSession.setCategory(.playAndRecord,
                                               mode: .spokenAudio,
@@ -140,32 +142,46 @@ class ResourceCoordinator: NSObject, ObservableObject {
         }
     }
     
-    func stopExerciseSession() {
+    func stopExerciseSession(completion: (() -> Void)? = nil) {
         // Clear audio queue
         audioQueue.removeAll()
         isProcessingAudioQueue = false
         
-        // Stop the camera session
-        cameraManager?.stopSession()
-        
-        // Stop vision processing
-        visionManager?.stopProcessing()
-        
-        // Stop speech synthesis
-        voiceManager?.stopSpeaking()
-        
-        // Stop speech recognition
-        speechRecognitionManager?.stopListening()
-        
-        // Deactivate audio session
-        do {
-            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-        } catch {
-            print("Error deactivating audio session: \(error.localizedDescription)")
+        // Always dispatch UI updates to the main thread
+        DispatchQueue.main.async {
+            // Stop the camera session
+            self.cameraManager?.stopSession()
+            
+            // Stop vision processing
+            self.visionManager?.stopProcessing()
         }
         
-        // Update state
-        isExerciseSessionActive = false
+        // Stop speech synthesis
+        // voiceManager?.stopSpeaking()
+        
+        // Stop speech recognition
+        // speechRecognitionManager?.stopListening()
+        
+        // Deactivate audio session on a background thread to prevent UI blocking
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                // Ensure audio session is deactivated cleanly
+                let audioSession = AVAudioSession.sharedInstance()
+                // First try setting to ambient to avoid conflicts
+                try? audioSession.setCategory(.ambient)
+                
+                // Then deactivate
+                try self.audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            } catch {
+                print("Error deactivating audio session: \(error.localizedDescription)")
+            }
+            
+            // Update UI state on main thread
+            DispatchQueue.main.async {
+                self.isExerciseSessionActive = false
+                completion?()
+            }
+        }
     }
     
     // MARK: - Audio Queue Management

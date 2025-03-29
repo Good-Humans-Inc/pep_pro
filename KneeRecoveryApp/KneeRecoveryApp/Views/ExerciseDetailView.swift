@@ -4,6 +4,7 @@ import AVFoundation
 struct ExerciseDetailView: View {
     let exercise: Exercise
     
+    // State variables
     @State private var isExerciseActive = false
     @State private var remainingTime: TimeInterval = 0
     @State private var timer: Timer? = nil
@@ -29,6 +30,11 @@ struct ExerciseDetailView: View {
     @State private var coachMessages: [String] = []
     @State private var showCoachFeedback = false
     
+    // Operation tracking flags
+    @State private var isStartingExercise = false
+    @State private var isStoppingExercise = false
+    
+    // Environment objects
     @EnvironmentObject private var cameraManager: CameraManager
     @EnvironmentObject private var visionManager: VisionManager
     @EnvironmentObject private var voiceManager: VoiceManager
@@ -91,6 +97,7 @@ struct ExerciseDetailView: View {
                             .cornerRadius(8)
                         }
                         .padding(.bottom, 32)
+                        .disabled(isStoppingExercise)
                     }
                 }
             } else {
@@ -214,13 +221,31 @@ struct ExerciseDetailView: View {
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.blue)
+                                .background(isStartingExercise ? Color.gray : Color.blue)
                                 .cornerRadius(12)
                         }
                         .padding(.top, 16)
+                        .disabled(isStartingExercise)
                     }
                     .padding()
                 }
+            }
+            
+            // Loading overlay when starting exercise
+            if isStartingExercise {
+                Color.black.opacity(0.7)
+                    .edgesIgnoringSafeArea(.all)
+                    .overlay(
+                        VStack {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(.white)
+                            
+                            Text("Setting up exercise...")
+                                .foregroundColor(.white)
+                                .padding(.top, 20)
+                        }
+                    )
             }
         }
         .navigationBarTitle("", displayMode: .inline)
@@ -230,9 +255,37 @@ struct ExerciseDetailView: View {
             Image(systemName: "info.circle")
         })
         .onDisappear {
-            if isExerciseActive {
-                stopExercise()
+            // Ensure session cleanup when navigating away
+            if isExerciseActive || isStartingExercise {
+                // Stop any active timers
+                timer?.invalidate()
+                timer = nil
+                
+                // Forcefully clear any active ElevenLabs sessions
+                voiceManager.endElevenLabsSession()
+                
+                // Clear camera resources
+                cameraManager.stopSession()
+                visionManager.stopProcessing()
+                
+                // Reset states
+                isExerciseActive = false
+                isStartingExercise = false
+                isStoppingExercise = false
             }
+            
+            // Additional cleanup
+            speechRecognitionManager.stopListening()
+            
+            // Always deactivate audio session when leaving the view
+            do {
+                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            } catch {
+                print("Error deactivating audio session: \(error)")
+            }
+            
+            // Clean up notification observer
+            removeExerciseCoachObserver()
         }
         .sheet(isPresented: $showingModifySheet) {
             ModifyExerciseView(
@@ -250,13 +303,19 @@ struct ExerciseDetailView: View {
                 saveModifications()
             })
         }
-        .sheet(isPresented: $showingExerciseReport) {
-            ExerciseReportView(
-                exercise: exercise,
-                duration: exerciseDuration,
-                date: Date()
-            )
-            .environmentObject(voiceManager)
+        // Use fullScreenCover for the report instead of sheet for better presentation
+        .fullScreenCover(isPresented: $showingExerciseReport) {
+            NavigationView {
+                ExerciseReportView(
+                    exercise: exercise,
+                    duration: exerciseDuration,
+                    date: Date()
+                )
+                .environmentObject(voiceManager)
+                .navigationBarItems(trailing: Button("Done") {
+                    showingExerciseReport = false
+                })
+            }
         }
         .overlay(
             Group {
@@ -278,10 +337,6 @@ struct ExerciseDetailView: View {
             // Set up exercise coach notification observer
             setupExerciseCoachObserver()
         }
-        .onDisappear {
-            // Clean up notification observer
-            removeExerciseCoachObserver()
-        }
     }
     
     // Set up notification observer for the exercise coach
@@ -292,10 +347,6 @@ struct ExerciseDetailView: View {
             queue: .main
         ) { notification in
             guard let message = notification.userInfo?["message"] as? String else { return }
-//            guard let feedbackData = notification.userInfo?["feedback"] as? ExerciseFeedbackData else { return }
-//            
-//            // When feedback is received, we could use it later for the report
-//            self.exerciseFeedbackData = feedbackData
             
             // Add message to the coach messages
             coachMessages.append(message)
@@ -305,79 +356,116 @@ struct ExerciseDetailView: View {
             
             // Auto-hide after a delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                showCoachFeedback = false
+                if isExerciseActive {
+                    showCoachFeedback = false
+                }
             }
         }
     }
     
     // Remove notification observer
     private func removeExerciseCoachObserver() {
-        NotificationCenter.default.removeObserver(self, name: Notification.Name("ExerciseFeedback"), object: nil)
+        NotificationCenter.default.removeObserver(
+            self,
+            name: Notification.Name("ExerciseFeedback"),
+            object: nil
+        )
     }
     
     private func startExercise() {
+        // Prevent multiple starts
+        if isStartingExercise {
+            return
+        }
+        
         // Begin coordinating resources
-        resourceCoordinator.printAudioRouteInfo() // Check what audio devices are connected
-        resourceCoordinator.testMicrophoneInput() // Test if mic is receiving audio
-        resourceCoordinator.startExerciseSession { success in
-            guard success else { return }
-            
-            // Start camera and vision processing
-            cameraManager.startSession()
-            visionManager.startProcessing(cameraManager.videoOutput)
-            
-            // Start the exercise coach agent instead of the onboarding agent
-            voiceManager.startExerciseCoachAgent()
-            
-            // Start speech recognition
-            speechRecognitionManager.startListening()
-            
-            // Setup timer
-            remainingTime = exercise.duration
-            timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-                if remainingTime > 0 {
-                    remainingTime -= 1
-                } else {
-                    stopExercise()
+        resourceCoordinator.printAudioRouteInfo()
+        
+        // Begin by disabling UI
+        isStartingExercise = true
+        
+        // Important: Always end any prior sessions first with a completion handler
+        voiceManager.endElevenLabsSession {
+            // Start the exercise session after ensuring the previous session is ended
+            resourceCoordinator.startExerciseSession { success in
+                guard success else {
+                    DispatchQueue.main.async {
+                        isStartingExercise = false
+                    }
+                    return
+                }
+                
+                // Start camera and vision processing
+                cameraManager.startSession()
+                visionManager.startProcessing(cameraManager.videoOutput)
+                
+                // Start the exercise coach agent with a completion handler
+                voiceManager.startExerciseCoachAgent {
+                    DispatchQueue.main.async {
+                        // Setup timer only after the session is started
+                        remainingTime = exercise.duration
+                        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                            if remainingTime > 0 {
+                                remainingTime -= 1
+                            } else {
+                                stopExercise()
+                            }
+                        }
+                        
+                        // Initialize coach messages
+                        coachMessages = ["I'll help guide you through this exercise. Let me see your form..."]
+                        showCoachFeedback = true
+                        
+                        // Auto-hide initial message after a few seconds
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                            if isExerciseActive {
+                                showCoachFeedback = false
+                            }
+                        }
+                        
+                        // Update UI after everything is ready
+                        isExerciseActive = true
+                        isStartingExercise = false
+                    }
                 }
             }
-            
-            // Initialize coach messages
-            coachMessages = ["I'll help guide you through this exercise. Let me see your form..."]
-            showCoachFeedback = true
-            
-            // Auto-hide initial message after a few seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                showCoachFeedback = false
-            }
-            
-            // Update UI
-            isExerciseActive = true
         }
     }
     
     private func stopExercise() {
-        let actualDuration = exercise.duration - remainingTime
-        exerciseDuration = actualDuration
+        // Set state to prevent multiple calls
+        if isStoppingExercise {
+            return
+        }
+        
+        isStoppingExercise = true
         
         // Stop timer
         timer?.invalidate()
         timer = nil
         
-        // Stop coordinating resources
-        resourceCoordinator.stopExerciseSession()
+        let actualDuration = exercise.duration - remainingTime
+        exerciseDuration = actualDuration
         
-        // End the exercise coach session
-        voiceManager.endElevenLabsSession()
-        
-        // Clear coach messages
-        coachMessages = []
-        
-        // Update UI
-        isExerciseActive = false
-        
-        // Show exercise report
-        showingExerciseReport = true
+        // End the exercise coach session first
+        voiceManager.endElevenLabsSession {
+            // Then stop coordinating resources
+            resourceCoordinator.stopExerciseSession {
+                // Clear coach messages
+                coachMessages = []
+                
+                // Update UI
+                DispatchQueue.main.async {
+                    isExerciseActive = false
+                    isStoppingExercise = false
+                    
+                    // Show exercise report - use a slight delay to ensure previous UI updates complete
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showingExerciseReport = true
+                    }
+                }
+            }
+        }
     }
     
     private func timeString(from timeInterval: TimeInterval) -> String {
@@ -432,12 +520,6 @@ struct ExerciseDetailView: View {
             return
         }
         
-        // DEBUG: Print the raw JSON being sent
-        if let jsonString = String(data: jsonData, encoding: .utf8) {
-            print("🔍 MODIFY EXERCISE REQUEST JSON:")
-            print(jsonString)
-        }
-        
         // Create the URL request
         let urlString = "https://us-central1-pep-pro.cloudfunctions.net/modify_exercise"
         guard let url = URL(string: urlString) else {
@@ -451,51 +533,31 @@ struct ExerciseDetailView: View {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = jsonData
         
-        // DEBUG: Print details about the request
-        print("🚀 Sending request to: \(urlString)")
-        print("📋 Headers: \(request.allHTTPHeaderFields ?? [:])")
-        
         // Create the data task
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            // DEBUG: Log HTTP response details
-            if let httpResponse = response as? HTTPURLResponse {
-                print("📥 RESPONSE STATUS: \(httpResponse.statusCode)")
-                print("📥 RESPONSE HEADERS: \(httpResponse.allHeaderFields)")
-            }
-            
             DispatchQueue.main.async {
                 self.isUploading = false
                 
                 if let error = error {
-                    print("❌ NETWORK ERROR: \(error.localizedDescription)")
+                    print("Network error: \(error.localizedDescription)")
                     self.uploadError = "Network error: \(error.localizedDescription)"
                     return
                 }
                 
                 guard let httpResponse = response as? HTTPURLResponse else {
-                    print("❌ INVALID RESPONSE: Not an HTTP response")
                     self.uploadError = "Invalid response from server"
                     return
                 }
                 
                 guard let data = data else {
-                    print("❌ NO DATA: Response contained no data")
                     self.uploadError = "No data received from server"
                     return
                 }
                 
-                // DEBUG: Print raw response data
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("📥 RAW RESPONSE:")
-                    print(responseString)
-                }
-                
                 if httpResponse.statusCode != 200 {
-                    print("❌ ERROR STATUS CODE: \(httpResponse.statusCode)")
                     self.uploadError = "Server error: HTTP \(httpResponse.statusCode)"
                     if let errorMessage = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let errorText = errorMessage["error"] as? String {
-                        print("❌ ERROR MESSAGE: \(errorText)")
                         self.uploadError = errorText
                     }
                     return
@@ -504,23 +566,14 @@ struct ExerciseDetailView: View {
                 // Parse the response
                 do {
                     let responseDict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                    print("✅ PARSED RESPONSE: \(responseDict ?? [:])")
                     
                     if let status = responseDict?["status"] as? String, status == "success" {
                         // Handle success
-                        print("✅ MODIFICATION SUCCESSFUL")
-                        if let exerciseData = responseDict?["exercise"] as? [String: Any],
-                           let videoUrl = exerciseData["video_url"] as? String {
-                            print("🎬 NEW VIDEO URL: \(videoUrl)")
-                        }
-                        
                         self.uploadError = nil
                     } else {
-                        print("❌ MODIFICATION FAILED: \(responseDict?["error"] as? String ?? "Unknown error")")
                         self.uploadError = responseDict?["error"] as? String ?? "Unknown error"
                     }
                 } catch {
-                    print("❌ JSON PARSING ERROR: \(error.localizedDescription)")
                     self.uploadError = "Failed to parse response: \(error.localizedDescription)"
                 }
             }

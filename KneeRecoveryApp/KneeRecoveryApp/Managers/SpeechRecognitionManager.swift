@@ -115,6 +115,22 @@ class SpeechRecognitionManager: NSObject, ObservableObject {
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         print("Recording format: \(recordingFormat)")
         
+        
+        // *******DEBUG Crashing
+        // CRITICAL: Make a copy of the format to avoid reference issues
+        let processFormat = AVAudioFormat(
+            commonFormat: recordingFormat.commonFormat,
+            sampleRate: recordingFormat.sampleRate,
+            channels: recordingFormat.channelCount,
+            interleaved: recordingFormat.isInterleaved
+        )
+        
+        // Install tap with the copied format
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: processFormat) { buffer, _ in
+            self.recognitionRequest?.append(buffer)
+            // Rest of your code
+        }
+        
         // Create recognition task with detailed logging
         recognitionTask = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             guard let self = self else { return }
@@ -192,6 +208,20 @@ class SpeechRecognitionManager: NSObject, ObservableObject {
             }
         }
         
+        // *****DEBUG Crashing
+        // Add this before audioEngine.prepare()
+        do {
+            // Reset the audio session to make sure it's in a clean state
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            try audioSession.setCategory(.playAndRecord,
+                                      mode: .spokenAudio,
+                                      options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("FINAL AUDIO SESSION CONFIG ERROR: \(error)")
+            speechError = "Could not configure audio session: \(error.localizedDescription)"
+            return
+        }
         // Start the audio engine
         audioEngine.prepare()
         

@@ -156,6 +156,10 @@ class CameraManager: NSObject, ObservableObject {
     // Clean up method
     func cleanUp() {
         stopSession()
+        
+        // Memory cleanup
+        session.inputs.forEach { session.removeInput($0) }
+        session.outputs.forEach { session.removeOutput($0) }
     }
 }
 
