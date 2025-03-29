@@ -201,8 +201,10 @@ struct OnboardingView: View {
     }
     
     private func addMessage(text: String, isUser: Bool) {
+        print("Adding message: \(text), isUser: \(isUser)")
         let message = ConversationMessage(text: text, isUser: isUser)
         messages.append(message)
+        print("Messages count: \(messages.count)")
     }
     
     private func handleExercisesGenerated() {

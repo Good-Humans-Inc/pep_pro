@@ -85,7 +85,6 @@ class VoiceManager: NSObject, ObservableObject {
     
     override init() {
         super.init()
-        speechSynthesizer.delegate = self
         print("VoiceManager initialized with ElevenLabsSDK \(ElevenLabsSDK.version)")
         startNetworkMonitoring()
         
@@ -219,147 +218,6 @@ class VoiceManager: NSObject, ObservableObject {
             }
         }
     }
-        
-//
-//        Task {
-//            do {
-//                print("⭐️ Starting ElevenLabs session with agent type: \(agentType.displayName) (ID: \(agentType.agentId))")
-//                
-//                // Network check
-//                if !isNetworkConnected {
-//                    print("⚠️ Warning: Network appears to be disconnected")
-//                }
-//                
-//                // Set up initial configuration
-//                let config = ElevenLabsSDK.SessionConfig(agentId: agentType.agentId)
-//                
-//                // Register client tools - different tools based on agent type
-//                var clientTools = ElevenLabsSDK.ClientTools()
-//                
-//                switch agentType {
-//                case .onboarding:
-//                    registerOnboardingTools(clientTools: &clientTools)
-//                case .exerciseCoach:
-//                    registerExerciseCoachTools(clientTools: &clientTools)
-//                }
-//                
-//                // Configure callbacks for ElevenLabs events
-//                var callbacks = ElevenLabsSDK.Callbacks()
-//                
-//                // Connection status callbacks
-//                callbacks.onConnect = { conversationId in
-//                    print("🟢 ElevenLabs connected with \(agentType.displayName) - conversation ID: \(conversationId)")
-//                    DispatchQueue.main.async {
-//                        self.status = .connected
-//                        self.isSessionActive = true
-//                        
-//                        // Notify if exercise coach is ready
-//                        if agentType == .exerciseCoach {
-//                            NotificationCenter.default.post(
-//                                name: VoiceManager.exerciseCoachReadyNotification,
-//                                object: nil
-//                            )
-//                        }
-//                    }
-//                }
-//                
-//                callbacks.onDisconnect = {
-//                    print("🔴 ElevenLabs \(agentType.displayName) disconnected")
-//                    DispatchQueue.main.async {
-//                        self.status = .disconnected
-//                        self.isSessionActive = false
-//                        // Keep the session requested flag to prevent immediate reconnection
-//                    }
-//                }
-//                
-//                // Mode change callback (speaking/listening)
-//                callbacks.onModeChange = { newMode in
-//                    print("🔄 ElevenLabs \(agentType.displayName) mode changed to: \(newMode)")
-//                    DispatchQueue.main.async {
-//                        self.mode = newMode
-//                        self.isSpeaking = (newMode == .speaking)
-//                        self.isListening = (newMode == .listening)
-//                    }
-//                }
-//                
-//                // Audio level updates
-//                callbacks.onVolumeUpdate = { newVolume in
-//                    DispatchQueue.main.async {
-//                        self.audioLevel = newVolume
-//                    }
-//                }
-//                
-//                // Message transcripts
-//                callbacks.onMessage = { message, role in
-//                    print("📝 ElevenLabs \(agentType.displayName) message (\(role.rawValue)): \(message)")
-//                    
-//                    // Try to extract JSON from the message if in onboarding mode
-//                    if agentType == .onboarding {
-//                        self.tryExtractJson(from: message)
-//                    }
-//                    
-//                    DispatchQueue.main.async {
-//                        if role == .user {
-//                            self.transcribedText = message
-//                        } else if role == .ai {
-//                            self.lastSpokenText = message
-//                        }
-//                    }
-//                }
-//                
-//                // Error handling
-//                callbacks.onError = { error, details in
-//                    print("⚠️ ElevenLabs \(agentType.displayName) error: \(error)")
-//                    print("⚠️ Error details: \(String(describing: details))")
-//                    
-//                    DispatchQueue.main.async {
-//                        self.voiceError = "ElevenLabs error: \(error)"
-//                        self.isSessionActive = false
-//                        
-//                        // Only reset the request flag for certain errors
-//                        if error != "WebSocket error" {
-//                            self.sessionRequestFlags[agentType] = false
-//                        }
-//                    }
-//                    
-//                    // If socket error, attempt reconnection
-//                    if error == "WebSocket error" {
-//                        self.handleConnectionFailure(agentType: agentType)
-//                    }
-//                }
-//                
-//                // Set status to connecting
-//                DispatchQueue.main.async {
-//                    self.status = .connecting
-//                }
-//                
-//                // Start the conversation session
-//                print("🚀 Attempting to start ElevenLabs \(agentType.displayName) session...")
-//                
-//                conversation = try await ElevenLabsSDK.Conversation.startSession(
-//                    config: config,
-//                    callbacks: callbacks,
-//                    clientTools: clientTools
-//                )
-//                
-//                DispatchQueue.main.async {
-//                    self.isListening = true
-//                    self.isSessionActive = true
-//                }
-//                
-//                print("✅ ElevenLabs \(agentType.displayName) session started successfully")
-//                
-//            } catch {
-//                print("❌ Failed to start ElevenLabs \(agentType.displayName) conversation: \(error)")
-//                
-//                DispatchQueue.main.async {
-//                    self.voiceError = "Failed to start ElevenLabs: \(error.localizedDescription)"
-//                    self.status = .disconnected
-//                    self.isSessionActive = false
-//                    self.sessionRequestFlags[agentType] = false  // Reset flag to allow future attempts
-//                }
-//            }
-//        }
     
     private func doStartElevenLabsSession(agentType: AgentType, completion: @escaping () -> Void) {
         // Mark session as requested to prevent multiple starts
@@ -379,11 +237,12 @@ class VoiceManager: NSObject, ObservableObject {
                     print("⚠️ Warning: Network appears to be disconnected")
                 }
                 
-                // Rest of your session setup code...
+                // Set up initial configuration
                 let config = ElevenLabsSDK.SessionConfig(agentId: agentType.agentId)
                 
-                // Register client tools
+                // Register client tools - different tools based on agent type
                 var clientTools = ElevenLabsSDK.ClientTools()
+                
                 switch agentType {
                 case .onboarding:
                     registerOnboardingTools(clientTools: &clientTools)
@@ -391,10 +250,90 @@ class VoiceManager: NSObject, ObservableObject {
                     registerExerciseCoachTools(clientTools: &clientTools)
                 }
                 
-                // Configure callbacks
+                // Configure callbacks for ElevenLabs events
                 var callbacks = ElevenLabsSDK.Callbacks()
                 
-                // Your existing callback configurations...
+                // Connection status callbacks
+                callbacks.onConnect = { conversationId in
+                    print("🟢 ElevenLabs connected with \(agentType.displayName) - conversation ID: \(conversationId)")
+                    DispatchQueue.main.async {
+                        self.status = .connected
+                        self.isSessionActive = true
+                        
+                        // Notify if exercise coach is ready
+                        if agentType == .exerciseCoach {
+                            NotificationCenter.default.post(
+                                name: VoiceManager.exerciseCoachReadyNotification,
+                                object: nil
+                            )
+                        }
+                    }
+                }
+                
+                callbacks.onDisconnect = {
+                    print("🔴 ElevenLabs \(agentType.displayName) disconnected")
+                    DispatchQueue.main.async {
+                        self.status = .disconnected
+                        self.isSessionActive = false
+                        // Keep the session requested flag to prevent immediate reconnection
+                    }
+                }
+                
+                // Mode change callback (speaking/listening)
+                callbacks.onModeChange = { newMode in
+                    print("🔄 ElevenLabs \(agentType.displayName) mode changed to: \(newMode)")
+                    DispatchQueue.main.async {
+                        self.mode = newMode
+                        self.isSpeaking = (newMode == .speaking)
+                        self.isListening = (newMode == .listening)
+                    }
+                }
+                
+                // Audio level updates
+                callbacks.onVolumeUpdate = { newVolume in
+                    DispatchQueue.main.async {
+                        self.audioLevel = newVolume
+                    }
+                }
+                
+                // Message transcripts - THIS IS CRUCIAL FOR THE CONVERSATION BUBBLES
+                callbacks.onMessage = { message, role in
+                    print("📝 ElevenLabs \(agentType.displayName) message (\(role.rawValue)): \(message)")
+                    
+                    // Try to extract JSON from the message if in onboarding mode
+                    if agentType == .onboarding {
+                        self.tryExtractJson(from: message)
+                    }
+                    
+                    DispatchQueue.main.async {
+                        if role == .user {
+                            self.transcribedText = message
+                        } else if role == .ai {
+                            self.lastSpokenText = message
+                        }
+                    }
+                }
+                
+                // Error handling
+                callbacks.onError = { error, details in
+                    print("⚠️ ElevenLabs \(agentType.displayName) error: \(error)")
+                    print("⚠️ Error details: \(String(describing: details))")
+                    
+                    DispatchQueue.main.async {
+                        self.voiceError = "ElevenLabs error: \(error)"
+                        self.isSessionActive = false
+                        
+                        // Only reset the request flag for certain errors
+                        if error != "WebSocket error" {
+                            self.sessionRequestFlags[agentType] = false
+                        }
+                    }
+                    
+                    // If socket error, attempt reconnection
+                    if error == "WebSocket error" {
+                        self.handleConnectionFailure(agentType: agentType)
+                    }
+                }
                 
                 // Set status to connecting
                 DispatchQueue.main.async {
@@ -449,7 +388,7 @@ class VoiceManager: NSObject, ObservableObject {
             try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
             
             // Configure with appropriate settings for ElevenLabs
-            try audioSession.setCategory(.playback, mode: .default)
+            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
             try audioSession.setActive(true)
             
             print("✅ Audio session configured for ElevenLabs")
@@ -1023,22 +962,5 @@ class VoiceManager: NSObject, ObservableObject {
         }
         
         return conversation.getId()
-    }
-}
-
-// MARK: - AVSpeechSynthesizerDelegate
-extension VoiceManager: AVSpeechSynthesizerDelegate {
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        DispatchQueue.main.async {
-            self.isSpeaking = false
-            self.completionHandler?()
-        }
-    }
-    
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        DispatchQueue.main.async {
-            self.isSpeaking = false
-            self.completionHandler?()
-        }
     }
 }
