@@ -405,9 +405,9 @@ struct ExerciseDetailView: View {
                     return
                 }
                 
-//                // Start camera and vision processing
-//                cameraManager.startSession()
-//                visionManager.startProcessing(cameraManager.videoOutput)
+                // Start camera and vision processing
+                cameraManager.startSession()
+                visionManager.startProcessing(cameraManager.videoOutput)
                 
                 // Start the exercise coach agent with a completion handler
                 voiceManager.startExerciseCoachAgent {

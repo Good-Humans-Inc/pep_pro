@@ -127,16 +127,21 @@ class CameraManager: NSObject, ObservableObject {
     }
     
     func startSession() {
+        print("📷 CameraManager.startSession() called")
+        
         if setupResult != .success {
+            print("📷 Camera setup result not success, checking authorization...")
             checkAuthorization()
         }
         
         if setupResult == .success && !session.isRunning {
+            print("📷 Setting up camera session...")
             setupSession()
             videoProcessingQueue.async {
                 self.session.startRunning()
                 DispatchQueue.main.async {
                     self.isSessionRunning = self.session.isRunning
+                    print("📷 Camera session running: \(self.isSessionRunning)")
                 }
             }
         }
