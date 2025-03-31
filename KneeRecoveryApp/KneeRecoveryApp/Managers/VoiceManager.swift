@@ -196,9 +196,22 @@ class VoiceManager: NSObject, ObservableObject {
             return
         }
         
+        // Check if this agent type is already being requested
+        if sessionRequestFlags[agentType] == true {
+            print("⚠️ \(agentType.displayName) session already requested, skipping duplicate start")
+            sessionLock.unlock()
+            DispatchQueue.main.async {
+                completion?()
+            }
+            return
+        }
+        
         // Check if we already have an active session
         if isSessionActive {
             print("⚠️ A session is already active (\(currentAgentType?.displayName ?? "unknown")). Ending it before starting a new one.")
+            
+            // Mark this session as requested to prevent multiple starts during cleanup
+            sessionRequestFlags[agentType] = true
             
             // Release the lock
             sessionLock.unlock()
@@ -217,16 +230,6 @@ class VoiceManager: NSObject, ObservableObject {
         // Check if onboarding is already completed (for onboarding agent)
         if agentType == .onboarding && hasCompletedOnboarding {
             print("⚠️ Onboarding already completed, skipping session start")
-            sessionLock.unlock()
-            DispatchQueue.main.async {
-                completion?()
-            }
-            return
-        }
-        
-        // Check if this agent type is already being requested
-        if sessionRequestFlags[agentType] == true {
-            print("⚠️ \(agentType.displayName) session already requested, skipping duplicate start")
             sessionLock.unlock()
             DispatchQueue.main.async {
                 completion?()
@@ -446,11 +449,16 @@ class VoiceManager: NSObject, ObservableObject {
             isConfiguringAudio = true
             sessionLock.unlock()
             
+            // First try to deactivate any existing audio session
+            do {
+                try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+                print("✅ Successfully deactivated previous audio session")
+            } catch {
+                print("⚠️ Error deactivating previous audio session: \(error). Continuing anyway.")
+            }
+            
             // Configure audio session
             do {
-                // First deactivate any existing audio session
-                try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-                
                 // Configure with appropriate settings for ElevenLabs
                 try audioSession.setCategory(.playAndRecord,
                                           mode: .spokenAudio,
@@ -483,7 +491,15 @@ class VoiceManager: NSObject, ObservableObject {
         
         sessionLock.lock()
         
-        // First ensure any existing session is fully terminated
+        // Check if already requested
+        if sessionRequestFlags[.exerciseCoach] == true {
+            print("⚠️ Exercise Coach session already requested - ignoring duplicate request")
+            sessionLock.unlock()
+            completion?()
+            return
+        }
+        
+        // Check if session is already active
         let needsTermination = isSessionActive
         sessionLock.unlock()
         
@@ -501,108 +517,108 @@ class VoiceManager: NSObject, ObservableObject {
             startElevenLabsSession(agentType: .exerciseCoach, completion: completion)
         }
     }
-    
-    // Register tools specific to the onboarding agent
-    private func registerOnboardingTools(clientTools: inout ElevenLabsSDK.ClientTools) {
-        // Tool to capture patient ID
-        clientTools.register("savePatientData") { [weak self] parameters in
-            guard let self = self else { return "Manager not available" }
-            
-            print("🔵 savePatientData tool called with parameters: \(parameters)")
-            
-            // Extract patient ID from parameters
-            guard let patientId = parameters["patient_id"] as? String else {
-                print("❌ No patient_id parameter found")
-                throw ElevenLabsSDK.ClientToolError.invalidParameters
-            }
-            
-            // Save patient ID to UserDefaults
-            UserDefaults.standard.set(patientId, forKey: "PatientID")
-            
-            // Mark onboarding as completed
-            UserDefaults.standard.set(true, forKey: "HasCompletedOnboarding")
-            
-            // Update published property on main thread
-            DispatchQueue.main.async {
-                self.patientId = patientId
-                self.hasCompletedOnboarding = true
-                
-                // Post notification for other parts of the app
-                NotificationCenter.default.post(
-                    name: VoiceManager.patientIdReceivedNotification,
-                    object: nil,
-                    userInfo: ["patient_id": patientId]
-                )
-                
-                // Post notification that onboarding is complete
-                NotificationCenter.default.post(
-                    name: VoiceManager.onboardingCompletedNotification,
-                    object: nil
-                )
-                
-                // Automatically generate exercises with the new patient ID
-                self.generateExercises(patientId: patientId)
-            }
-            
-            print("✅ Saved patient ID: \(patientId)")
-            return "Patient data saved successfully with ID: \(patientId)"
-        }
         
-        // Debug tool to log any message
-        clientTools.register("logMessage") { parameters in
-            guard let message = parameters["message"] as? String else {
-                throw ElevenLabsSDK.ClientToolError.invalidParameters
+        // Register tools specific to the onboarding agent
+        private func registerOnboardingTools(clientTools: inout ElevenLabsSDK.ClientTools) {
+            // Tool to capture patient ID
+            clientTools.register("savePatientData") { [weak self] parameters in
+                guard let self = self else { return "Manager not available" }
+                
+                print("🔵 savePatientData tool called with parameters: \(parameters)")
+                
+                // Extract patient ID from parameters
+                guard let patientId = parameters["patient_id"] as? String else {
+                    print("❌ No patient_id parameter found")
+                    throw ElevenLabsSDK.ClientToolError.invalidParameters
+                }
+                
+                // Save patient ID to UserDefaults
+                UserDefaults.standard.set(patientId, forKey: "PatientID")
+                
+                // Mark onboarding as completed
+                UserDefaults.standard.set(true, forKey: "HasCompletedOnboarding")
+                
+                // Update published property on main thread
+                DispatchQueue.main.async {
+                    self.patientId = patientId
+                    self.hasCompletedOnboarding = true
+                    
+                    // Post notification for other parts of the app
+                    NotificationCenter.default.post(
+                        name: VoiceManager.patientIdReceivedNotification,
+                        object: nil,
+                        userInfo: ["patient_id": patientId]
+                    )
+                    
+                    // Post notification that onboarding is complete
+                    NotificationCenter.default.post(
+                        name: VoiceManager.onboardingCompletedNotification,
+                        object: nil
+                    )
+                    
+                    // Automatically generate exercises with the new patient ID
+                    self.generateExercises(patientId: patientId)
+                }
+                
+                print("✅ Saved patient ID: \(patientId)")
+                return "Patient data saved successfully with ID: \(patientId)"
             }
             
-            print("🔵 ElevenLabs onboarding logMessage: \(message)")
-            return "Logged: \(message)"
-        }
-        
-        // Tool to extract and save JSON data
-        clientTools.register("saveJsonData") { [weak self] parameters in
-            guard let self = self else { return "Manager not available" }
-            
-            print("🔵 saveJsonData tool called with parameters: \(parameters)")
-            
-            // Process each key-value pair and save to UserDefaults if needed
-            for (key, value) in parameters {
-                print("📝 Key: \(key), Value: \(value)")
+            // Debug tool to log any message
+            clientTools.register("logMessage") { parameters in
+                guard let message = parameters["message"] as? String else {
+                    throw ElevenLabsSDK.ClientToolError.invalidParameters
+                }
                 
-                // Special handling for patient_id
-                if key == "patient_id", let patientId = value as? String {
-                    UserDefaults.standard.set(patientId, forKey: "PatientID")
+                print("🔵 ElevenLabs onboarding logMessage: \(message)")
+                return "Logged: \(message)"
+            }
+            
+            // Tool to extract and save JSON data
+            clientTools.register("saveJsonData") { [weak self] parameters in
+                guard let self = self else { return "Manager not available" }
+                
+                print("🔵 saveJsonData tool called with parameters: \(parameters)")
+                
+                // Process each key-value pair and save to UserDefaults if needed
+                for (key, value) in parameters {
+                    print("📝 Key: \(key), Value: \(value)")
                     
-                    // Mark onboarding as completed
-                    UserDefaults.standard.set(true, forKey: "HasCompletedOnboarding")
-                    
-                    DispatchQueue.main.async {
-                        self.patientId = patientId
-                        self.hasCompletedOnboarding = true
+                    // Special handling for patient_id
+                    if key == "patient_id", let patientId = value as? String {
+                        UserDefaults.standard.set(patientId, forKey: "PatientID")
                         
-                        // Post notification
-                        NotificationCenter.default.post(
-                            name: VoiceManager.patientIdReceivedNotification,
-                            object: nil,
-                            userInfo: ["patient_id": patientId]
-                        )
+                        // Mark onboarding as completed
+                        UserDefaults.standard.set(true, forKey: "HasCompletedOnboarding")
                         
-                        // Automatically generate exercises with the new patient ID
-                        self.generateExercises(patientId: patientId)
+                        DispatchQueue.main.async {
+                            self.patientId = patientId
+                            self.hasCompletedOnboarding = true
+                            
+                            // Post notification
+                            NotificationCenter.default.post(
+                                name: VoiceManager.patientIdReceivedNotification,
+                                object: nil,
+                                userInfo: ["patient_id": patientId]
+                            )
+                            
+                            // Automatically generate exercises with the new patient ID
+                            self.generateExercises(patientId: patientId)
+                        }
+                        
+                        print("✅ Saved patient ID: \(patientId)")
                     }
                     
-                    print("✅ Saved patient ID: \(patientId)")
+                    // Save other data to UserDefaults
+                    if let stringValue = value as? String {
+                        UserDefaults.standard.set(stringValue, forKey: key)
+                    }
                 }
                 
-                // Save other data to UserDefaults
-                if let stringValue = value as? String {
-                    UserDefaults.standard.set(stringValue, forKey: key)
-                }
+                return "JSON data processed successfully"
             }
             
-            return "JSON data processed successfully"
-        }
-        
-        print("⭐️ Registered onboarding client tools: savePatientData, logMessage, saveJsonData")
+            print("⭐️ Registered onboarding client tools: savePatientData, logMessage, saveJsonData")
     }
     
     // Register tools specific to the exercise coach agent
@@ -954,6 +970,7 @@ class VoiceManager: NSObject, ObservableObject {
                 // End the conversation session if it exists
                 if let conversation = self.conversation {
                     try await conversation.endSession()
+                    print("✅ ElevenLabs conversation ended successfully")
                 }
                 
                 // Add a delay to ensure session cleanup is complete

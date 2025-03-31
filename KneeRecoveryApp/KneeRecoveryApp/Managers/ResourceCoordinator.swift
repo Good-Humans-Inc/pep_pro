@@ -51,15 +51,19 @@ class ResourceCoordinator: NSObject, ObservableObject {
     // MARK: - Permission Handling
     
     func checkInitialPermissions() {
+        print("🔍 ResourceCoordinator.checkInitialPermissions called")
         checkAllPermissions { _ in /* No action needed on initial check */ }
     }
     
     func checkAllPermissions(completion: @escaping (Bool) -> Void) {
+        print("🔍 Checking all permissions")
+        
         // Reset the permission flag
         allPermissionsGranted = false
         
         // Check camera permission
         let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
+        print("📷 Camera permission status: \(cameraStatus.rawValue)")
         
         // Check microphone permission - using updated API
         var microphoneGranted = false
@@ -68,9 +72,12 @@ class ResourceCoordinator: NSObject, ObservableObject {
         if #available(iOS 17.0, *) {
             AVAudioApplication.requestRecordPermission { granted in
                 microphoneGranted = granted
+                print("🎤 Microphone permission granted: \(granted)")
                 
                 // Check speech recognition permission
                 SFSpeechRecognizer.requestAuthorization { speechStatus in
+                    print("🗣️ Speech recognition permission status: \(speechStatus.rawValue)")
+                    
                     DispatchQueue.main.async {
                         // All permissions are granted if:
                         // 1. Camera is authorized
@@ -81,6 +88,7 @@ class ResourceCoordinator: NSObject, ObservableObject {
                                         (speechStatus == .authorized)
                         
                         self.allPermissionsGranted = allGranted
+                        print("🔐 All permissions granted: \(allGranted)")
                         completion(allGranted)
                     }
                 }
@@ -89,9 +97,12 @@ class ResourceCoordinator: NSObject, ObservableObject {
             // Use the older API for iOS 16 and below
             audioSession.requestRecordPermission { granted in
                 microphoneGranted = granted
+                print("🎤 Microphone permission granted: \(granted)")
                 
                 // Check speech recognition permission
                 SFSpeechRecognizer.requestAuthorization { speechStatus in
+                    print("🗣️ Speech recognition permission status: \(speechStatus.rawValue)")
+                    
                     DispatchQueue.main.async {
                         // All permissions are granted if:
                         // 1. Camera is authorized
@@ -102,28 +113,35 @@ class ResourceCoordinator: NSObject, ObservableObject {
                                         (speechStatus == .authorized)
                         
                         self.allPermissionsGranted = allGranted
+                        print("🔐 All permissions granted: \(allGranted)")
                         completion(allGranted)
                     }
                 }
             }
         }
     }
+
+    
     
     // MARK: - Exercise Session Management
     
     func startExerciseSession(completion: @escaping (Bool) -> Void) {
+        print("🚀 ResourceCoordinator.startExerciseSession called")
+        
         // Check permissions first
         checkAllPermissions { allGranted in
             guard allGranted else {
                 self.coordinationError = "Missing required permissions"
+                print("❌ Missing required permissions for exercise session")
                 completion(false)
                 return
             }
             
-            
-            
             // Set up a single audio session for everything
             do {
+                print("🔈 ResourceCoordinator configuring master audio session")
+                
+                // First deactivate any existing audio session to ensure clean state
                 try self.audioSession.setActive(false, options: .notifyOthersOnDeactivation)
                 
                 // This is the key configuration that works for both speech and audio
@@ -131,9 +149,10 @@ class ResourceCoordinator: NSObject, ObservableObject {
                                               mode: .spokenAudio,
                                               options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
                 try self.audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-                print("Master audio session configured")
+                print("✅ Master audio session configured")
             } catch {
                 self.coordinationError = "Failed to configure audio session: \(error.localizedDescription)"
+                print("❌ Audio session config error: \(error)")
                 completion(false)
                 return
             }
@@ -143,46 +162,41 @@ class ResourceCoordinator: NSObject, ObservableObject {
             completion(true)
         }
     }
+
     
     func stopExerciseSession(completion: (() -> Void)? = nil) {
+        print("🛑 ResourceCoordinator.stopExerciseSession called")
+        
         // Clear audio queue
         audioQueue.removeAll()
         isProcessingAudioQueue = false
         
-        // Always dispatch UI updates to the main thread
-        DispatchQueue.main.async {
-            // Stop the camera session
-            self.cameraManager?.stopSession()
-            
-            // Stop vision processing
-            self.visionManager?.stopProcessing()
-        }
+        // Stop the camera session
+        cameraManager?.resetSession()
+        
+        // Stop vision processing
+        visionManager?.stopProcessing()
         
         // Stop speech synthesis
-        // voiceManager?.stopSpeaking()
+        voiceManager?.stopSpeaking()
         
         // Stop speech recognition
-        // speechRecognitionManager?.stopListening()
+        speechRecognitionManager?.stopListening()
         
-        // Deactivate audio session on a background thread to prevent UI blocking
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                // Ensure audio session is deactivated cleanly
-                let audioSession = AVAudioSession.sharedInstance()
-                // First try setting to ambient to avoid conflicts
-                try? audioSession.setCategory(.ambient)
-                
-                // Then deactivate
-                try self.audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-            } catch {
-                print("Error deactivating audio session: \(error.localizedDescription)")
-            }
-            
-            // Update UI state on main thread
-            DispatchQueue.main.async {
-                self.isExerciseSessionActive = false
-                completion?()
-            }
+        // Deactivate audio session
+        do {
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            print("✅ Audio session deactivated in stopExerciseSession")
+        } catch {
+            print("❌ Error deactivating audio session: \(error.localizedDescription)")
+        }
+        
+        // Update state
+        isExerciseSessionActive = false
+        
+        // Trigger completion handler
+        DispatchQueue.main.async {
+            completion?()
         }
     }
     
