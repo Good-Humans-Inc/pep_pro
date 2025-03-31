@@ -120,25 +120,41 @@ class ResourceCoordinator: NSObject, ObservableObject {
                 return
             }
             
-            // Set up a single audio session for everything
-            do {
-                try self.audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-                
-                // This is the key configuration that works for both speech and audio
-                try self.audioSession.setCategory(.playAndRecord,
-                                              mode: .spokenAudio,
-                                              options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
-                try self.audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-                print("Master audio session configured")
-            } catch {
-                self.coordinationError = "Failed to configure audio session: \(error.localizedDescription)"
-                completion(false)
-                return
-            }
+            // Start camera first - it's slower to initialize
+            self.cameraManager?.startSession()
             
-            // Now we're in an active exercise session
-            self.isExerciseSessionActive = true
-            completion(true)
+            // Set up a single audio session for everything
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                do {
+                    try self.audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+                    
+                    // This is the key configuration that works for both speech and audio
+                    try self.audioSession.setCategory(.playAndRecord,
+                                                      mode: .spokenAudio,
+                                                      options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+                    try self.audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+                    print("Master audio session configured")
+                    // Start vision processing after camera is initialized
+                    if let cameraManager = self.cameraManager, let visionManager = self.visionManager {
+                        visionManager.startProcessing(cameraManager.videoOutput)
+                    }
+                    
+                    //Mark session as active
+                    self.isExerciseSessionActive = true
+                    completion(true)
+                    
+                } catch {
+                    self.coordinationError = "Failed to configure audio session: \(error.localizedDescription)"
+                    // Clean up camera if audio fails
+                    self.cameraManager?.stopSession()
+                    completion(false)
+                    return
+                }
+                
+                // Now we're in an active exercise session
+                self.isExerciseSessionActive = true
+                completion(true)
+            }
         }
     }
     

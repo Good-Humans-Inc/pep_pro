@@ -33,6 +33,7 @@ struct ExerciseDetailView: View {
     // Operation tracking flags
     @State private var isStartingExercise = false
     @State private var isStoppingExercise = false
+    @State private var isTransitioning = false
     
     // Environment objects
     @EnvironmentObject private var cameraManager: CameraManager
@@ -373,6 +374,15 @@ struct ExerciseDetailView: View {
     }
     
     private func startExercise() {
+        // Prevent multiple starts or starts during transitions
+        guard !isExerciseActive && !isTransitioning else {
+            print("⚠️ Exercise already active or transitioning - ignoring start request")
+            return
+        }
+        
+        // Set transitioning flag
+        isTransitioning = true
+        
         // Prevent multiple starts
         if isStartingExercise {
             return
@@ -395,9 +405,9 @@ struct ExerciseDetailView: View {
                     return
                 }
                 
-                // Start camera and vision processing
-                cameraManager.startSession()
-                visionManager.startProcessing(cameraManager.videoOutput)
+//                // Start camera and vision processing
+//                cameraManager.startSession()
+//                visionManager.startProcessing(cameraManager.videoOutput)
                 
                 // Start the exercise coach agent with a completion handler
                 voiceManager.startExerciseCoachAgent {

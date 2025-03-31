@@ -87,22 +87,22 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             UserDefaults.standard.set(token, forKey: "FCMToken")
             
             // Display the token in an alert for easy copying during development
-            #if DEBUG
-            DispatchQueue.main.async {
-                let alertController = UIAlertController(
-                    title: "FCM Token",
-                    message: token,
-                    preferredStyle: .alert
-                )
-                alertController.addAction(UIAlertAction(title: "Copy", style: .default) { _ in
-                    UIPasteboard.general.string = token
-                })
-                alertController.addAction(UIAlertAction(title: "OK", style: .cancel))
-                
-                // Get the current top view controller to present the alert
-                UIApplication.shared.windows.first?.rootViewController?.present(alertController, animated: true)
-            }
-            #endif
+//            #if DEBUG
+//            DispatchQueue.main.async {
+//                let alertController = UIAlertController(
+//                    title: "FCM Token",
+//                    message: token,
+//                    preferredStyle: .alert
+//                )
+//                alertController.addAction(UIAlertAction(title: "Copy", style: .default) { _ in
+//                    UIPasteboard.general.string = token
+//                })
+//                alertController.addAction(UIAlertAction(title: "OK", style: .cancel))
+//                
+//                // Get the current top view controller to present the alert
+//                UIApplication.shared.windows.first?.rootViewController?.present(alertController, animated: true)
+//            }
+//            #endif
         } else {
             print("FCM token is nil")
         }
