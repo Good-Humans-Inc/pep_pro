@@ -49,7 +49,7 @@ struct AddExerciseSheetModifier: ViewModifier {
         exercises.append(newExercise)
         
         // Call API to add custom exercise
-        guard let patientId = UserDefaults.standard.string(forKey: "patient_id") else { return }
+        guard let patientId = UserDefaults.standard.string(forKey: "PatientID") else { return }
         
         let url = URL(string: "https://us-central1-pep-pro.cloudfunctions.net/add_custom_exercise")!
         var request = URLRequest(url: url)
@@ -111,6 +111,61 @@ extension View {
     }
 }
 
+// Separate view for exercise item to break up complex view hierarchy
+struct ExerciseItemView: View {
+    let exercise: Exercise
+    
+    // Environment objects
+    @EnvironmentObject var resourceCoordinator: ResourceCoordinator
+    @EnvironmentObject var voiceManager: VoiceManager
+    @EnvironmentObject var speechRecognitionManager: SpeechRecognitionManager
+    @EnvironmentObject var cameraManager: CameraManager
+    @EnvironmentObject var visionManager: VisionManager
+    
+    var onAddNewExercise: () -> Void
+    
+    var body: some View {
+        NavigationLink {
+            // Destination view
+            ExerciseDetailView(exercise: exercise)
+                .environmentObject(resourceCoordinator)
+                .environmentObject(voiceManager)
+                .environmentObject(speechRecognitionManager)
+                .environmentObject(cameraManager)
+                .environmentObject(visionManager)
+                .id(exercise.id.uuidString)
+        } label: {
+            // Label view
+            ExerciseCard(
+                exercise: exercise,
+                onAddNewExercise: onAddNewExercise
+            )
+        }
+    }
+}
+
+// Loading View for exercises
+struct LoadingExercisesView: View {
+    var body: some View {
+        HStack {
+            Spacer()
+            ProgressView("Loading exercises...")
+            Spacer()
+        }
+        .padding()
+    }
+}
+
+// Empty Exercises View
+struct EmptyExercisesView: View {
+    var body: some View {
+        Text("No exercises available. Complete the onboarding to get recommendations.")
+            .font(.body)
+            .foregroundColor(.secondary)
+            .padding()
+    }
+}
+
 // MARK: - LandingView is the list of exercises
 struct LandingView: View {
     @State private var exercises = [Exercise]()
@@ -126,80 +181,74 @@ struct LandingView: View {
     
     var body: some View {
         NavigationView {
-            List {
-                if isLoadingExercises {
-                    HStack {
-                        Spacer()
-                        ProgressView("Loading exercises...")
-                        Spacer()
+            contentView
+                .navigationTitle("Knee Recovery Exercises")
+                .navigationBarItems(
+                    leading: ResetOnboardingButton(),
+                    trailing: Button(action: {
+                        checkPermissions()
+                    }) {
+                        Image(systemName: "info.circle")
                     }
-                    .padding()
-                } else if !exercises.isEmpty {
-                    Section(header: Text("Your Recommended Exercises").font(.headline)) {
-                        ForEach(exercises) { exercise in
-                            NavigationLink {
-                                // Destination view
-                                ExerciseDetailView(exercise: exercise)
-                                    .environmentObject(resourceCoordinator)
-                                    .environmentObject(voiceManager)
-                                    .environmentObject(speechRecognitionManager)
-                                    .environmentObject(cameraManager)
-                                    .environmentObject(visionManager)
-                            } label: {
-                                // Label view
-                                ExerciseCard(
-                                    exercise: exercise,
-                                    onAddNewExercise: {
-                                        showAddExerciseSheet()
-                                    }
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Text("No exercises available. Complete the onboarding to get recommendations.")
-                        .font(.body)
-                        .foregroundColor(.secondary)
-                        .padding()
-                }
-            }
-            .navigationTitle("Knee Recovery Exercises")
-            .navigationBarItems(
-                leading: ResetOnboardingButton(),
-                trailing: Button(action: {
-                    checkPermissions()
-                }) {
-                    Image(systemName: "info.circle")
-                }
-            )
-            .alert(isPresented: $showingPermissionsAlert) {
-                Alert(
-                    title: Text("Permissions Required"),
-                    message: Text("This app requires camera and microphone permissions for exercises."),
-                    primaryButton: .default(Text("Settings"), action: {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
-                    }),
-                    secondaryButton: .cancel()
                 )
-            }
-            .onAppear {
-                // Load exercises from the API or local storage
-                loadExercises()
-                
-                // End any ongoing voice session
-                if voiceManager.isSessionActive {
-                    print("⚠️ Unexpected active voice session in LandingView - ending it")
-                    voiceManager.endElevenLabsSession()
+                .alert(isPresented: $showingPermissionsAlert) {
+                    Alert(
+                        title: Text("Permissions Required"),
+                        message: Text("This app requires camera and microphone permissions for exercises."),
+                        primaryButton: .default(Text("Settings"), action: {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }),
+                        secondaryButton: .cancel()
+                    )
                 }
-                
-                // Optional: Check if permissions are already granted
-                resourceCoordinator.checkInitialPermissions()
-            }
+                .onAppear {
+                    // Load exercises from the API or local storage
+                    loadExercises()
+                    
+                    // End any ongoing voice session
+                    if voiceManager.isSessionActive {
+                        print("⚠️ Unexpected active voice session in LandingView - ending it")
+                        voiceManager.endElevenLabsSession()
+                    }
+                    
+                    // Optional: Check if permissions are already granted
+                    resourceCoordinator.checkInitialPermissions()
+                }
         }
         // Apply the custom modifier to handle add exercise sheet
         .withAddExerciseSheet(exercises: $exercises)
+    }
+    
+    // Breaking the content into a separate computed property
+    private var contentView: some View {
+        List {
+            if isLoadingExercises {
+                LoadingExercisesView()
+            } else if !exercises.isEmpty {
+                exercisesSection
+            } else {
+                EmptyExercisesView()
+            }
+        }
+    }
+    
+    // Breaking the exercises section into a separate computed property
+    private var exercisesSection: some View {
+        Section(header: Text("Your Recommended Exercises").font(.headline)) {
+            ForEach(exercises) { exercise in
+                ExerciseItemView(
+                    exercise: exercise,
+                    onAddNewExercise: { showAddExerciseSheet() }
+                )
+                .environmentObject(resourceCoordinator)
+                .environmentObject(voiceManager)
+                .environmentObject(speechRecognitionManager)
+                .environmentObject(cameraManager)
+                .environmentObject(visionManager)
+            }
+        }
     }
     
     private func loadExercises() {
@@ -291,7 +340,7 @@ struct LandingView: View {
         }
         
         // Make API call
-        URLSession.shared.dataTask(with: request) { [self] data, response, error in
+        URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let error = error {
                     print("Error fetching exercises: \(error)")
@@ -402,12 +451,14 @@ extension Exercise {
     // Convert from BodyJointType to Joint if needed
     init(id: UUID = UUID(), name: String, description: String,
          imageURLString: String? = nil, duration: TimeInterval = 180,
-         targetJoints: [Joint] = [], instructions: [String] = []) {
+         targetJoints: [Joint] = [], instructions: [String] = [],
+         firestoreId: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
         self.imageURL = imageURLString != nil ? URL(string: imageURLString!) : nil
         self.duration = duration
+        self.firestoreId = firestoreId
         
         // Convert Joint to BodyJointType
         self.targetJoints = targetJoints.compactMap { joint in

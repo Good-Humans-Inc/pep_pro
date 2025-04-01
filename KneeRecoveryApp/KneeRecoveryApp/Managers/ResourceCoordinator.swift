@@ -4,6 +4,9 @@ import Combine
 import Speech
 
 class ResourceCoordinator: NSObject, ObservableObject {
+    // Reference to AppState
+    private let appState: AppState
+    
     // Published properties for UI updates
     @Published var isExerciseSessionActive = false
     @Published var allPermissionsGranted = false
@@ -13,10 +16,10 @@ class ResourceCoordinator: NSObject, ObservableObject {
     private let audioSession = AVAudioSession.sharedInstance()
     
     // References to the managers this coordinator will manage
-    private var cameraManager: CameraManager?
-    private var visionManager: VisionManager?
-    private var voiceManager: VoiceManager?
-    private var speechRecognitionManager: SpeechRecognitionManager?
+    private weak var cameraManager: CameraManager?
+    private weak var visionManager: VisionManager?
+    private weak var voiceManager: VoiceManager?
+    private weak var speechRecognitionManager: SpeechRecognitionManager?
     
     // Audio queue to manage voice and speech recognition timing
     private var audioQueue = [AudioOperation]()
@@ -40,26 +43,57 @@ class ResourceCoordinator: NSObject, ObservableObject {
         }
     }
     
+    // Initialize with AppState
+    init(appState: AppState) {
+        self.appState = appState
+        super.init()
+        
+        // Update initial resource state
+        updateResourceState(isInitialized: false)
+    }
+    
+    // Update resource state in AppState
+    private func updateResourceState(isInitialized: Bool? = nil, isCleaningUp: Bool? = nil, error: String? = nil) {
+        DispatchQueue.main.async {
+            if let isInitialized = isInitialized {
+                self.appState.resourceState.isInitialized = isInitialized
+            }
+            if let isCleaningUp = isCleaningUp {
+                self.appState.resourceState.isCleaningUp = isCleaningUp
+            }
+            if let error = error {
+                self.appState.resourceState.error = error
+            }
+        }
+    }
+    
     func configure(cameraManager: CameraManager, visionManager: VisionManager,
                    voiceManager: VoiceManager, speechRecognitionManager: SpeechRecognitionManager) {
         self.cameraManager = cameraManager
         self.visionManager = visionManager
         self.voiceManager = voiceManager
         self.speechRecognitionManager = speechRecognitionManager
+        
+        // Update resource state
+        updateResourceState(isInitialized: true)
     }
     
     // MARK: - Permission Handling
     
     func checkInitialPermissions() {
+        print("🔍 ResourceCoordinator.checkInitialPermissions called")
         checkAllPermissions { _ in /* No action needed on initial check */ }
     }
     
     func checkAllPermissions(completion: @escaping (Bool) -> Void) {
+        print("🔍 Checking all permissions")
+        
         // Reset the permission flag
         allPermissionsGranted = false
         
         // Check camera permission
         let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
+        print("📷 Camera permission status: \(cameraStatus.rawValue)")
         
         // Check microphone permission - using updated API
         var microphoneGranted = false
@@ -68,9 +102,12 @@ class ResourceCoordinator: NSObject, ObservableObject {
         if #available(iOS 17.0, *) {
             AVAudioApplication.requestRecordPermission { granted in
                 microphoneGranted = granted
+                print("🎤 Microphone permission granted: \(granted)")
                 
                 // Check speech recognition permission
                 SFSpeechRecognizer.requestAuthorization { speechStatus in
+                    print("🗣️ Speech recognition permission status: \(speechStatus.rawValue)")
+                    
                     DispatchQueue.main.async {
                         // All permissions are granted if:
                         // 1. Camera is authorized
@@ -81,6 +118,7 @@ class ResourceCoordinator: NSObject, ObservableObject {
                                         (speechStatus == .authorized)
                         
                         self.allPermissionsGranted = allGranted
+                        print("🔐 All permissions granted: \(allGranted)")
                         completion(allGranted)
                     }
                 }
@@ -89,9 +127,12 @@ class ResourceCoordinator: NSObject, ObservableObject {
             // Use the older API for iOS 16 and below
             audioSession.requestRecordPermission { granted in
                 microphoneGranted = granted
+                print("🎤 Microphone permission granted: \(granted)")
                 
                 // Check speech recognition permission
                 SFSpeechRecognizer.requestAuthorization { speechStatus in
+                    print("🗣️ Speech recognition permission status: \(speechStatus.rawValue)")
+                    
                     DispatchQueue.main.async {
                         // All permissions are granted if:
                         // 1. Camera is authorized
@@ -102,34 +143,46 @@ class ResourceCoordinator: NSObject, ObservableObject {
                                         (speechStatus == .authorized)
                         
                         self.allPermissionsGranted = allGranted
+                        print("🔐 All permissions granted: \(allGranted)")
                         completion(allGranted)
                     }
                 }
             }
         }
     }
+
+    
     
     // MARK: - Exercise Session Management
     
     func startExerciseSession(completion: @escaping (Bool) -> Void) {
+        print("🚀 ResourceCoordinator.startExerciseSession called")
+        
         // Check permissions first
         checkAllPermissions { allGranted in
             guard allGranted else {
                 self.coordinationError = "Missing required permissions"
+                print("❌ Missing required permissions for exercise session")
                 completion(false)
                 return
             }
             
             // Set up a single audio session for everything
             do {
+                print("🔈 ResourceCoordinator configuring master audio session")
+                
+                // First deactivate any existing audio session to ensure clean state
+                try self.audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+                
                 // This is the key configuration that works for both speech and audio
                 try self.audioSession.setCategory(.playAndRecord,
                                               mode: .spokenAudio,
                                               options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
                 try self.audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-                print("Master audio session configured")
+                print("✅ Master audio session configured")
             } catch {
                 self.coordinationError = "Failed to configure audio session: \(error.localizedDescription)"
+                print("❌ Audio session config error: \(error)")
                 completion(false)
                 return
             }
@@ -139,14 +192,20 @@ class ResourceCoordinator: NSObject, ObservableObject {
             completion(true)
         }
     }
+
     
-    func stopExerciseSession() {
+    func stopExerciseSession(completion: (() -> Void)? = nil) {
+        print("🛑 ResourceCoordinator.stopExerciseSession called")
+        
+        // Update resource state
+        updateResourceState(isCleaningUp: true)
+        
         // Clear audio queue
         audioQueue.removeAll()
         isProcessingAudioQueue = false
         
         // Stop the camera session
-        cameraManager?.stopSession()
+        cameraManager?.resetSession()
         
         // Stop vision processing
         visionManager?.stopProcessing()
@@ -160,12 +219,20 @@ class ResourceCoordinator: NSObject, ObservableObject {
         // Deactivate audio session
         do {
             try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            print("✅ Audio session deactivated in stopExerciseSession")
         } catch {
-            print("Error deactivating audio session: \(error.localizedDescription)")
+            print("❌ Error deactivating audio session: \(error.localizedDescription)")
+            updateResourceState(error: error.localizedDescription)
         }
         
         // Update state
         isExerciseSessionActive = false
+        updateResourceState(isCleaningUp: false)
+        
+        // Trigger completion handler
+        DispatchQueue.main.async {
+            completion?()
+        }
     }
     
     // MARK: - Audio Queue Management

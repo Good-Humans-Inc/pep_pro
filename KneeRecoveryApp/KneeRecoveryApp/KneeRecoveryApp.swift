@@ -6,7 +6,17 @@ import FirebaseMessaging
 
 // App Delegate to handle Firebase, notifications, etc.
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate, MessagingDelegate {
+    // Track if this is first launch of the app
+    @AppStorage("isFirstAppLaunch") private var isFirstAppLaunch = true
+    
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        print("📱 Application launching (first launch: \(isFirstAppLaunch))")
+        
+        // Special setup for first app launch
+        if isFirstAppLaunch {
+            setupForFirstLaunch()
+        }
+        
         // Configure Firebase
         FirebaseApp.configure()
         
@@ -41,7 +51,86 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         // Register for remote notifications
         application.registerForRemoteNotifications()
         
+        // Only mark first launch as complete after setup is done
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.isFirstAppLaunch = false
+            print("📱 First launch setup completed")
+        }
+        
         return true
+    }
+    
+    // Setup specific configurations for first launch
+    private func setupForFirstLaunch() {
+        print("🔄 Setting up app for first launch")
+        
+        // Reset all UserDefaults flags related to initialization
+        UserDefaults.standard.set(false, forKey: "cameraManagerInitialized")
+        UserDefaults.standard.set(false, forKey: "hasStartedExerciseBefore")
+        
+        // Pre-initialize AVCaptureSession at app startup to reduce failures
+        let captureSession = AVCaptureSession()
+        let sessionQueue = DispatchQueue(label: "session queue")
+        
+        // Request camera permissions right away
+        AVCaptureDevice.requestAccess(for: .video) { granted in
+            print("📷 Camera permission pre-request result: \(granted)")
+            
+            // If granted, do an initial configuration
+            if granted {
+                sessionQueue.async {
+                    captureSession.beginConfiguration()
+                    
+                    // Attempt to add an input
+                    if let device = AVCaptureDevice.default(for: .video),
+                       let input = try? AVCaptureDeviceInput(device: device),
+                       captureSession.canAddInput(input) {
+                        captureSession.addInput(input)
+                    }
+                    
+                    captureSession.commitConfiguration()
+                    
+                    // Start and immediately stop the session
+                    captureSession.startRunning()
+                    Thread.sleep(forTimeInterval: 0.5)
+                    captureSession.stopRunning()
+                    
+                    print("✅ Camera session pre-initialized")
+                }
+            }
+        }
+        
+        // Pre-configure audio session to initialize the system
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            
+            // First make sure it's not active
+            try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            
+            // Configure with default settings
+            try audioSession.setCategory(.playAndRecord,
+                                      mode: .default,
+                                      options: [.defaultToSpeaker])
+            
+            // Briefly activate and deactivate to initialize
+            try audioSession.setActive(true)
+            try audioSession.setActive(false)
+            
+            // Now configure with proper settings for our app
+            try audioSession.setCategory(.playAndRecord,
+                                      mode: .spokenAudio,
+                                      options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+                                      
+            try audioSession.setPreferredSampleRate(48000.0)
+            try audioSession.setPreferredIOBufferDuration(0.005)
+            
+            try audioSession.setActive(true)
+            try audioSession.setActive(false)
+            
+            print("✅ Audio session pre-initialized for first launch")
+        } catch {
+            print("❌ Error pre-initializing audio session: \(error)")
+        }
     }
     
     // Handle registration for remote notifications
@@ -112,99 +201,42 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 // Main SwiftUI App
 @main
 struct KneeRecoveryApp: App {
-    // Connect AppDelegate to SwiftUI lifecycle
-    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    // Initialize AppState first
+    private let appState = AppState()
     
-    // State objects for managers
-    @StateObject var cameraManager = CameraManager()
-    @StateObject var visionManager = VisionManager()
-    @StateObject var voiceManager = VoiceManager()
-    @StateObject var speechRecognitionManager = SpeechRecognitionManager()
-    @StateObject var resourceCoordinator = ResourceCoordinator()
+    // Initialize managers with AppState
+    private let voiceManager: VoiceManager
+    private let cameraManager: CameraManager
+    private let speechRecognitionManager: SpeechRecognitionManager
+    private let resourceCoordinator: ResourceCoordinator
+    private let visionManager: VisionManager
     
-    // State for onboarding
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = true
-    
-    // Environment object to monitor app lifecycle
-    @Environment(\.scenePhase) private var scenePhase
+    init() {
+        // Initialize vision manager first since camera manager depends on it
+        visionManager = VisionManager(appState: appState)
+        
+        // Initialize camera manager with vision manager
+        cameraManager = CameraManager(appState: appState, visionManager: visionManager)
+        
+        // Initialize other managers
+        voiceManager = VoiceManager(appState: appState)
+        speechRecognitionManager = SpeechRecognitionManager(appState: appState)
+        resourceCoordinator = ResourceCoordinator(appState: appState)
+        
+        // Start vision processing
+        visionManager.isProcessing = true
+        print("🚀 App initialization complete")
+    }
     
     var body: some Scene {
         WindowGroup {
-            if hasCompletedOnboarding {
-                NavigationView {
-                    LandingView()
-                        .environmentObject(cameraManager)
-                        .environmentObject(visionManager)
-                        .environmentObject(voiceManager)
-                        .environmentObject(speechRecognitionManager)
-                        .environmentObject(resourceCoordinator)
-                }
-                .environmentObject(cameraManager)
-                .environmentObject(visionManager)
+            ContentView()
+                .environmentObject(appState)
                 .environmentObject(voiceManager)
+                .environmentObject(cameraManager)
                 .environmentObject(speechRecognitionManager)
                 .environmentObject(resourceCoordinator)
-                .onAppear {
-                    
-                    // Ensure any lingering sessions are terminated
-                    if voiceManager.isSessionActive {
-                        print("⚠️ Terminating lingering voice session in LandingView")
-                        voiceManager.endElevenLabsSession()
-                    }
-                    
-                    resourceCoordinator.configure(
-                        cameraManager: cameraManager,
-                        visionManager: visionManager,
-                        voiceManager: voiceManager,
-                        speechRecognitionManager: speechRecognitionManager
-                    )
-                    
-                    // Debug environment objects
-                    print("App initialized with environment objects:")
-                    print("- Camera Manager: \(cameraManager)")
-                    print("- Vision Manager: \(visionManager)")
-                    print("- Voice Manager: \(voiceManager)")
-                    print("- Speech Recognition Manager: \(speechRecognitionManager)")
-                    print("- Resource Coordinator: \(resourceCoordinator)")
-                }
-            } else {
-                NavigationStack {
-                    OnboardingView()
-                        .environmentObject(voiceManager)
-                        .environmentObject(resourceCoordinator)
-                        .environmentObject(cameraManager)
-                        .environmentObject(visionManager)
-                        .environmentObject(speechRecognitionManager)
-                        .onDisappear {
-                            // Terminate any active sessions when view disappears
-                            if voiceManager.isSessionActive {
-                                print("⚠️ Terminating voice session on OnboardingView disappear")
-                                voiceManager.endElevenLabsSession()
-                            }
-                            
-                            // Update navigation state
-                            hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "HasCompletedOnboarding")
-                        }
-                }
-            }
-        }
-        // Monitor app lifecycle and perform cleanup
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .background {
-                // Clean up when app moves to background
-                print("App moving to background - cleaning up resources")
-                speechRecognitionManager.cleanUp()
-                voiceManager.cleanUp()
-                cameraManager.cleanUp()
-                resourceCoordinator.stopExerciseSession()
-                
-                // Force deactivate audio session
-                do {
-                    try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-                } catch {
-                    print("Failed to deactivate audio session: \(error)")
-                }
-            }
+                .environmentObject(visionManager)
         }
     }
 }

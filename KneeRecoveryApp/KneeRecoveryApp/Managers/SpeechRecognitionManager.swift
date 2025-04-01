@@ -4,6 +4,9 @@ import AVFoundation
 import Combine
 
 class SpeechRecognitionManager: NSObject, ObservableObject {
+    // Reference to AppState
+    private let appState: AppState
+    
     // Published properties for UI updates
     @Published var isListening = false
     @Published var recognizedText = ""
@@ -22,8 +25,16 @@ class SpeechRecognitionManager: NSObject, ObservableObject {
     // For tracking previously seen text to detect changes
     private var lastTranscription = ""
     
-    override init() {
+    // Initialize with AppState
+    init(appState: AppState) {
+        self.appState = appState
         super.init()
+        
+        // Update speech state
+        updateSpeechState(isListening: isListening)
+        updateSpeechState(recognizedText: recognizedText)
+        updateSpeechState(isAuthorized: isSpeechAuthorized)
+        
         checkAuthorization()
     }
     
@@ -115,6 +126,22 @@ class SpeechRecognitionManager: NSObject, ObservableObject {
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         print("Recording format: \(recordingFormat)")
         
+        
+        // *******DEBUG Crashing
+        // CRITICAL: Make a copy of the format to avoid reference issues
+        let processFormat = AVAudioFormat(
+            commonFormat: recordingFormat.commonFormat,
+            sampleRate: recordingFormat.sampleRate,
+            channels: recordingFormat.channelCount,
+            interleaved: recordingFormat.isInterleaved
+        )
+        
+        // Install tap with the copied format
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: processFormat) { buffer, _ in
+            self.recognitionRequest?.append(buffer)
+            // Rest of your code
+        }
+        
         // Create recognition task with detailed logging
         recognitionTask = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             guard let self = self else { return }
@@ -192,6 +219,20 @@ class SpeechRecognitionManager: NSObject, ObservableObject {
             }
         }
         
+        // *****DEBUG Crashing
+        // Add this before audioEngine.prepare()
+        do {
+            // Reset the audio session to make sure it's in a clean state
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            try audioSession.setCategory(.playAndRecord,
+                                      mode: .spokenAudio,
+                                      options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("FINAL AUDIO SESSION CONFIG ERROR: \(error)")
+            speechError = "Could not configure audio session: \(error.localizedDescription)"
+            return
+        }
         // Start the audio engine
         audioEngine.prepare()
         
@@ -247,6 +288,26 @@ class SpeechRecognitionManager: NSObject, ObservableObject {
     
     // Clean up method
     func cleanUp() {
-        stopListening()
+        isListening = false
+        recognizedText = ""
+        updateSpeechState(isListening: false, recognizedText: "")
+    }
+    
+    // Update speech state in AppState
+    private func updateSpeechState(isListening: Bool? = nil, recognizedText: String? = nil, isAuthorized: Bool? = nil, error: String? = nil) {
+        DispatchQueue.main.async {
+            if let isListening = isListening {
+                self.appState.speechState.isListening = isListening
+            }
+            if let recognizedText = recognizedText {
+                self.appState.speechState.recognizedText = recognizedText
+            }
+            if let isAuthorized = isAuthorized {
+                self.appState.speechState.isSpeechAuthorized = isAuthorized
+            }
+            if let error = error {
+                self.appState.speechState.speechError = error
+            }
+        }
     }
 }
