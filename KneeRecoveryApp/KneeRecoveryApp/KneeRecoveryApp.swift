@@ -212,12 +212,20 @@ struct KneeRecoveryApp: App {
     private let visionManager: VisionManager
     
     init() {
-        // Initialize all managers with the same AppState instance
+        // Initialize vision manager first since camera manager depends on it
+        visionManager = VisionManager(appState: appState)
+        
+        // Initialize camera manager with vision manager
+        cameraManager = CameraManager(appState: appState, visionManager: visionManager)
+        
+        // Initialize other managers
         voiceManager = VoiceManager(appState: appState)
-        cameraManager = CameraManager(appState: appState)
         speechRecognitionManager = SpeechRecognitionManager(appState: appState)
         resourceCoordinator = ResourceCoordinator(appState: appState)
-        visionManager = VisionManager(appState: appState)
+        
+        // Start vision processing
+        visionManager.isProcessing = true
+        print("🚀 App initialization complete")
     }
     
     var body: some Scene {

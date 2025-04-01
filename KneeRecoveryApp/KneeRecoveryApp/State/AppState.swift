@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Combine
 import ElevenLabsSDK
+import Vision
 
 // MARK: - App State
 class AppState: ObservableObject {
@@ -19,6 +20,7 @@ class AppState: ObservableObject {
     @Published var cameraState: CameraState
     @Published var speechState: SpeechState
     @Published var resourceState: ResourceState
+    @Published var visionState: VisionState
     
     // MARK: - Private Properties
     private var cancellables = Set<AnyCancellable>()
@@ -29,6 +31,7 @@ class AppState: ObservableObject {
         self.cameraState = CameraState()
         self.speechState = SpeechState()
         self.resourceState = ResourceState()
+        self.visionState = VisionState()
         
         loadPersistedState()
         setupObservers()
@@ -79,6 +82,7 @@ class AppState: ObservableObject {
         cameraState.cleanup()
         speechState.cleanup()
         resourceState.cleanup()
+        visionState.cleanup()
     }
 }
 
@@ -144,5 +148,20 @@ class ResourceState: ObservableObject {
         isInitialized = false
         isCleaningUp = false
         error = nil
+    }
+}
+
+// MARK: - Vision State
+class VisionState: ObservableObject {
+    @Published var currentPose = BodyPose()
+    @Published var isProcessing = false
+    @Published var error: String?
+    @Published var detectedPoses: [VNHumanBodyPoseObservation] = []
+    
+    func cleanup() {
+        currentPose = BodyPose()
+        isProcessing = false
+        error = nil
+        detectedPoses.removeAll()
     }
 } 

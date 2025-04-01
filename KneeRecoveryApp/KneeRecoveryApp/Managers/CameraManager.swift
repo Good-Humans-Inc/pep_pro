@@ -7,6 +7,9 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     // Reference to AppState
     private let appState: AppState
     
+    // Reference to VisionManager
+    private weak var visionManager: VisionManager?
+    
     // Published properties
     @Published var isSessionRunning = false
     @Published var isCameraAuthorized = false
@@ -42,8 +45,9 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     private var shouldPostNotifications = false
     
     // Initialize with AppState
-    init(appState: AppState) {
+    init(appState: AppState, visionManager: VisionManager? = nil) {
         self.appState = appState
+        self.visionManager = visionManager
         super.init()
         
         // Update camera state
@@ -413,8 +417,10 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        // This method will be called when a new frame is available
-        // You can forward the frame to your vision processing system here
+        // Forward the frame to VisionManager for processing
+        if let visionManager = visionManager {
+            visionManager.processFrame(sampleBuffer)
+        }
     }
     
     func captureOutput(_ output: AVCaptureOutput, didDrop sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {

@@ -21,7 +21,7 @@ class VisionManager: NSObject, ObservableObject {
     private var transformMatrix: CGAffineTransform = .identity
     
     // Vision request
-    private let bodyPoseRequest = VNDetectHumanBodyPoseRequest()
+    private var bodyPoseRequest: VNDetectHumanBodyPoseRequest!
     
     // Processing queue
     private let visionQueue = DispatchQueue(label: "com.kneerecovery.visionProcessing",
@@ -39,119 +39,18 @@ class VisionManager: NSObject, ObservableObject {
         self.appState = appState
         super.init()
         
-        // Configure the vision request
-        bodyPoseRequest.maximumNumberOfBodyPoses = 1 // Only track one person
+        // Configure vision
         setupVision()
+        print("👁 VisionManager initialized")
     }
     
     private func setupVision() {
-        // Set up pose detection request
-        if let poseRequest = try? VNDetectHumanBodyPoseRequest(completionHandler: handlePoses) {
-            requests = [poseRequest]
-        }
-    }
-    
-    private func handlePoses(request: VNRequest, error: Error?) {
-        DispatchQueue.main.async {
-            if let error = error {
-                self.processingError = error.localizedDescription
-                return
-            }
-            
-            guard let observations = request.results as? [VNHumanBodyPoseObservation] else {
-                return
-            }
-            
-            self.detectedPoses = observations
-        }
-    }
-    
-    // Update preview layer info for coordinate conversion
-    func updatePreviewLayer(rect: CGRect) {
-        previewLayer = rect
-        updateTransformMatrix()
-    }
-    
-    private func updateTransformMatrix() {
-        // Create transform matrix to convert normalized coordinates to view coordinates
-        transformMatrix = CGAffineTransform(scaleX: previewLayer.width, y: previewLayer.height)
-    }
-    
-    // Process frame for pose detection
-    func processFrame(_ sampleBuffer: CMSampleBuffer) {
-        guard !isProcessing else { return }
+        // Create and configure the pose detection request
+        bodyPoseRequest = VNDetectHumanBodyPoseRequest()
+        //bodyPoseRequest.maximumNumberOfObservations = 1 // Only track one person
+        requests = [bodyPoseRequest] // Add to requests array
         
-        isProcessing = true
-        
-        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            isProcessing = false
-            return
-        }
-        
-        let handler = VNImageRequestHandler(cvPixelBuffer: imageBuffer, orientation: .up, options: [:])
-        
-        do {
-            try handler.perform([bodyPoseRequest])
-            
-            guard let observation = bodyPoseRequest.results?.first else {
-                isProcessing = false
-                return
-            }
-            
-            // Process detected pose
-            processObservation(observation)
-            
-        } catch {
-            DispatchQueue.main.async {
-                self.processingError = error.localizedDescription
-            }
-        }
-        
-        isProcessing = false
-    }
-    
-    private func processObservation(_ observation: VNHumanBodyPoseObservation) {
-        var newPose = BodyPose()
-        
-        // Process each joint type
-        for jointType in BodyJointType.allCases {
-            guard let visionJoint = jointType.visionJointName else { continue }
-            
-            do {
-                let point = try observation.recognizedPoint(visionJoint)
-                
-                // Convert normalized coordinates to view coordinates
-                let transformedPoint = point.location.applying(transformMatrix)
-                
-                // Create body joint with transformed coordinates
-                let joint = BodyJoint(
-                    id: jointType,
-                    position: transformedPoint,
-                    confidence: point.confidence
-                )
-                
-                // Add joint to pose if confidence is high enough
-                if joint.isValid {
-                    newPose.joints[jointType] = joint
-                }
-                
-            } catch {
-                print("Failed to get point for joint \(jointType): \(error)")
-            }
-        }
-        
-        // Update pose on main thread
-        DispatchQueue.main.async {
-            self.currentBodyPose = newPose
-            print("Updated pose with \(newPose.joints.count) valid joints")
-            
-            // Print joint positions for debugging
-            print("-----------------------------------")
-            for (type, joint) in newPose.joints {
-                print("\(type): position=\(joint.position), confidence=\(joint.confidence)")
-            }
-            print("-----------------------------------")
-        }
+        print("👁 Vision requests configured")
     }
     
     func startProcessing(_ videoOutput: AVCaptureVideoDataOutput) {
@@ -170,13 +69,90 @@ class VisionManager: NSObject, ObservableObject {
     
     func stopProcessing() {
         isProcessing = false
-        DispatchQueue.main.async {
-            self.currentBodyPose = BodyPose()
+    }
+    
+    func processFrame(_ sampleBuffer: CMSampleBuffer) {
+        guard isProcessing,
+              let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            return
+        }
+        
+        let handler = VNImageRequestHandler(cvPixelBuffer: imageBuffer, orientation: .up, options: [:])
+        
+        do {
+            try handler.perform(requests)
+            
+            guard let observation = bodyPoseRequest.results?.first else {
+                print("👁 No pose detected")
+                return
+            }
+            
+            print("👁 Pose detected with confidence: \(observation.confidence)")
+            
+            // Convert normalized coordinates to the view's coordinates
+            let width = previewLayer.width
+            let height = previewLayer.height
+            
+            // Create body pose from observation
+            var detectedPose = BodyPose()
+            
+            // Process each joint from the observation
+            for jointType in BodyJointType.allCases {
+                guard let visionJointName = jointType.visionJointName else { continue }
+                
+                do {
+                    let jointPoint = try observation.recognizedPoint(visionJointName)
+                    
+                    // Only process joints with sufficient confidence
+                    if jointPoint.confidence > 0.3 {
+                        let normalizedPosition = CGPoint(x: jointPoint.x, y: 1 - jointPoint.y) // Flip Y coordinate
+                        let transformedPosition = normalizedPosition.applying(transformMatrix)
+                        
+                        detectedPose.joints[jointType] = BodyJoint(
+                            id: jointType,
+                            position: transformedPosition,
+                            confidence: jointPoint.confidence
+                        )
+                    }
+                } catch {
+                    print("👁 Error getting joint \(jointType): \(error)")
+                }
+            }
+            
+            DispatchQueue.main.async {
+                self.currentBodyPose = detectedPose
+                self.logJointCoordinates(detectedPose)
+                
+                // Update AppState
+                self.appState.visionState.currentPose = detectedPose
+                self.appState.visionState.isProcessing = true
+                self.appState.visionState.error = nil
+            }
+        } catch {
+            print("👁 Vision processing error: \(error)")
+            DispatchQueue.main.async {
+                self.processingError = error.localizedDescription
+                self.appState.visionState.error = error.localizedDescription
+            }
         }
     }
     
+    // Log joint coordinates to the console
+    private func logJointCoordinates(_ pose: BodyPose) {
+        print("BODY POSE JOINTS:")
+        
+        for (jointType, joint) in pose.joints {
+            if joint.isValid {
+                print("\(jointType.rawValue): x=\(joint.position.x), y=\(joint.position.y), confidence=\(joint.confidence)")
+            }
+        }
+        
+        print("-----------------------------------")
+    }
+    
     func cleanUp() {
-        stopProcessing()
+        isProcessing = false
+        detectedPoses.removeAll()
         processingError = nil
     }
 }
