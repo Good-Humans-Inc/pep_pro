@@ -197,169 +197,38 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         }
     }
 }
+
 // Main SwiftUI App
 @main
 struct KneeRecoveryApp: App {
-    // Connect AppDelegate to SwiftUI lifecycle
-    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    // Initialize AppState first
+    private let appState = AppState()
     
-    // State objects for managers
-    @StateObject var cameraManager = CameraManager()
-    @StateObject var visionManager = VisionManager()
-    @StateObject var voiceManager = VoiceManager()
-    @StateObject var speechRecognitionManager = SpeechRecognitionManager()
-    @StateObject var resourceCoordinator = ResourceCoordinator()
+    // Initialize managers with AppState
+    private let voiceManager: VoiceManager
+    private let cameraManager: CameraManager
+    private let speechRecognitionManager: SpeechRecognitionManager
+    private let resourceCoordinator: ResourceCoordinator
+    private let visionManager: VisionManager
     
-    // State for onboarding
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-    
-    // First time launch flag
-    @AppStorage("isFirstAppLaunch") private var isFirstAppLaunch = true
-    
-    // Environment object to monitor app lifecycle
-    @Environment(\.scenePhase) private var scenePhase
+    init() {
+        // Initialize all managers with the same AppState instance
+        voiceManager = VoiceManager(appState: appState)
+        cameraManager = CameraManager(appState: appState)
+        speechRecognitionManager = SpeechRecognitionManager(appState: appState)
+        resourceCoordinator = ResourceCoordinator(appState: appState)
+        visionManager = VisionManager(appState: appState)
+    }
     
     var body: some Scene {
         WindowGroup {
-            if hasCompletedOnboarding {
-                NavigationView {
-                    LandingView()
-                        .environmentObject(cameraManager)
-                        .environmentObject(visionManager)
-                        .environmentObject(voiceManager)
-                        .environmentObject(speechRecognitionManager)
-                        .environmentObject(resourceCoordinator)
-                }
-                .environmentObject(cameraManager)
-                .environmentObject(visionManager)
+            ContentView()
+                .environmentObject(appState)
                 .environmentObject(voiceManager)
+                .environmentObject(cameraManager)
                 .environmentObject(speechRecognitionManager)
                 .environmentObject(resourceCoordinator)
-                .onAppear {
-                    print("📱 LandingView appeared - app launch state: \(isFirstAppLaunch ? "first launch" : "subsequent launch")")
-                    
-                    // Configure resource coordinator with all the managers
-                    resourceCoordinator.configure(
-                        cameraManager: cameraManager,
-                        visionManager: visionManager,
-                        voiceManager: voiceManager,
-                        speechRecognitionManager: speechRecognitionManager
-                    )
-                    
-                    // Ensure any lingering sessions are terminated
-                    if voiceManager.isSessionActive {
-                        print("⚠️ Terminating lingering voice session in LandingView")
-                        voiceManager.endElevenLabsSession()
-                    }
-                    
-                    // Pre-initialize camera on first app launch to reduce errors
-                    if isFirstAppLaunch {
-                        print("🔄 First app launch - pre-initializing camera and audio")
-                        preInitializeResources()
-                    }
-                    
-                    // Debug environment objects
-                    print("App initialized with environment objects:")
-                    print("- Camera Manager: \(cameraManager)")
-                    print("- Vision Manager: \(visionManager)")
-                    print("- Voice Manager: \(voiceManager)")
-                    print("- Speech Recognition Manager: \(speechRecognitionManager)")
-                    print("- Resource Coordinator: \(resourceCoordinator)")
-                }
-            } else {
-                NavigationStack {
-                    OnboardingView()
-                        .environmentObject(voiceManager)
-                        .environmentObject(resourceCoordinator)
-                        .environmentObject(cameraManager)
-                        .environmentObject(visionManager)
-                        .environmentObject(speechRecognitionManager)
-                        .onDisappear {
-                            // Terminate any active sessions when view disappears
-                            if voiceManager.isSessionActive {
-                                print("⚠️ Terminating voice session on OnboardingView disappear")
-                                voiceManager.endElevenLabsSession()
-                            }
-                            
-                            // Update navigation state
-                            hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "HasCompletedOnboarding")
-                        }
-                        .onAppear {
-                            // Configure resource coordinator with all the managers
-                            resourceCoordinator.configure(
-                                cameraManager: cameraManager,
-                                visionManager: visionManager,
-                                voiceManager: voiceManager,
-                                speechRecognitionManager: speechRecognitionManager
-                            )
-                            
-                            // Pre-initialize camera on first app launch to reduce errors
-                            if isFirstAppLaunch {
-                                print("🔄 First app launch - pre-initializing camera and audio")
-                                preInitializeResources()
-                            }
-                        }
-                }
-            }
-        }
-        // Monitor app lifecycle and perform cleanup
-        .onChange(of: scenePhase) { _, newPhase in
-            switch newPhase {
-            case .active:
-                print("App became active")
-            case .inactive:
-                print("App became inactive")
-            case .background:
-                // Clean up when app moves to background
-                print("App moving to background - cleaning up resources")
-                cleanupResources()
-            @unknown default:
-                print("Unknown scene phase")
-            }
-        }
-    }
-    
-    // Pre-initialize resources to prevent first-run issues
-    private func preInitializeResources() {
-        // First reset the camera to ensure clean state
-        cameraManager.resetSession()
-        
-        // Start and immediately stop a camera session to warm it up
-        cameraManager.startSession {
-            print("✅ Camera pre-initialization completed")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                cameraManager.stopSession()
-                
-                // Reset first launch flag after initialization
-                isFirstAppLaunch = false
-            }
-        }
-        
-        // Configure audio session
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
-            try audioSession.setActive(true)
-            try audioSession.setActive(false)
-            print("✅ Audio session pre-initialized")
-        } catch {
-            print("❌ Error pre-initializing audio session: \(error)")
-        }
-    }
-    
-    // Cleanup all resources when app moves to background
-    private func cleanupResources() {
-        speechRecognitionManager.cleanUp()
-        voiceManager.cleanUp()
-        cameraManager.cleanUp()
-        resourceCoordinator.stopExerciseSession()
-        
-        // Force deactivate audio session
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            print("✅ Audio session deactivated on app background")
-        } catch {
-            print("❌ Failed to deactivate audio session: \(error)")
+                .environmentObject(visionManager)
         }
     }
 }

@@ -4,6 +4,9 @@ import Combine
 import Speech
 
 class ResourceCoordinator: NSObject, ObservableObject {
+    // Reference to AppState
+    private let appState: AppState
+    
     // Published properties for UI updates
     @Published var isExerciseSessionActive = false
     @Published var allPermissionsGranted = false
@@ -13,10 +16,10 @@ class ResourceCoordinator: NSObject, ObservableObject {
     private let audioSession = AVAudioSession.sharedInstance()
     
     // References to the managers this coordinator will manage
-    private var cameraManager: CameraManager?
-    private var visionManager: VisionManager?
-    private var voiceManager: VoiceManager?
-    private var speechRecognitionManager: SpeechRecognitionManager?
+    private weak var cameraManager: CameraManager?
+    private weak var visionManager: VisionManager?
+    private weak var voiceManager: VoiceManager?
+    private weak var speechRecognitionManager: SpeechRecognitionManager?
     
     // Audio queue to manage voice and speech recognition timing
     private var audioQueue = [AudioOperation]()
@@ -40,12 +43,39 @@ class ResourceCoordinator: NSObject, ObservableObject {
         }
     }
     
+    // Initialize with AppState
+    init(appState: AppState) {
+        self.appState = appState
+        super.init()
+        
+        // Update initial resource state
+        updateResourceState(isInitialized: false)
+    }
+    
+    // Update resource state in AppState
+    private func updateResourceState(isInitialized: Bool? = nil, isCleaningUp: Bool? = nil, error: String? = nil) {
+        DispatchQueue.main.async {
+            if let isInitialized = isInitialized {
+                self.appState.resourceState.isInitialized = isInitialized
+            }
+            if let isCleaningUp = isCleaningUp {
+                self.appState.resourceState.isCleaningUp = isCleaningUp
+            }
+            if let error = error {
+                self.appState.resourceState.error = error
+            }
+        }
+    }
+    
     func configure(cameraManager: CameraManager, visionManager: VisionManager,
                    voiceManager: VoiceManager, speechRecognitionManager: SpeechRecognitionManager) {
         self.cameraManager = cameraManager
         self.visionManager = visionManager
         self.voiceManager = voiceManager
         self.speechRecognitionManager = speechRecognitionManager
+        
+        // Update resource state
+        updateResourceState(isInitialized: true)
     }
     
     // MARK: - Permission Handling
@@ -167,6 +197,9 @@ class ResourceCoordinator: NSObject, ObservableObject {
     func stopExerciseSession(completion: (() -> Void)? = nil) {
         print("🛑 ResourceCoordinator.stopExerciseSession called")
         
+        // Update resource state
+        updateResourceState(isCleaningUp: true)
+        
         // Clear audio queue
         audioQueue.removeAll()
         isProcessingAudioQueue = false
@@ -189,10 +222,12 @@ class ResourceCoordinator: NSObject, ObservableObject {
             print("✅ Audio session deactivated in stopExerciseSession")
         } catch {
             print("❌ Error deactivating audio session: \(error.localizedDescription)")
+            updateResourceState(error: error.localizedDescription)
         }
         
         // Update state
         isExerciseSessionActive = false
+        updateResourceState(isCleaningUp: false)
         
         // Trigger completion handler
         DispatchQueue.main.async {

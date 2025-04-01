@@ -4,13 +4,13 @@ import AVFoundation
 import Combine
 
 class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
-    // Published properties for UI updates
+    // Reference to AppState
+    private let appState: AppState
+    
+    // Published properties
     @Published var isSessionRunning = false
     @Published var isCameraAuthorized = false
     @Published var cameraError: String?
-    
-    // App Storage for tracking first initialization
-    @AppStorage("cameraManagerInitialized") private var cameraManagerInitialized = false
     
     // Camera capture session
     let session = AVCaptureSession()
@@ -41,21 +41,41 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     // Flag to determine if we should post notifications
     private var shouldPostNotifications = false
     
-    override init() {
+    // Initialize with AppState
+    init(appState: AppState) {
+        self.appState = appState
         super.init()
+        
+        // Update camera state
+        updateCameraState(isRunning: isSessionRunning)
+        updateCameraState(isAuthorized: isCameraAuthorized)
         
         // Check camera authorization status
         checkAuthorization()
         
-        print("📷 CameraManager initialized (first init: \(!cameraManagerInitialized))")
-        cameraManagerInitialized = true
+        print("📷 CameraManager initialized")
+    }
+    
+    // Update camera state in AppState
+    private func updateCameraState(isRunning: Bool? = nil, isAuthorized: Bool? = nil, error: String? = nil) {
+        DispatchQueue.main.async {
+            if let isRunning = isRunning {
+                self.appState.cameraState.isSessionRunning = isRunning
+            }
+            if let isAuthorized = isAuthorized {
+                self.appState.cameraState.isCameraAuthorized = isAuthorized
+            }
+            if let error = error {
+                self.appState.cameraState.cameraError = error
+            }
+        }
     }
     
     func checkAuthorization() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             self.setupResult = .success
-            self.isCameraAuthorized = true
+            self.updateCameraState(isAuthorized: true)
             print("📷 Camera authorization: already authorized")
         case .notDetermined:
             // Request permission
@@ -64,18 +84,18 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                 DispatchQueue.main.async {
                     if granted {
                         self.setupResult = .success
-                        self.isCameraAuthorized = true
+                        self.updateCameraState(isAuthorized: true)
                         print("📷 Camera authorization: permission granted")
                     } else {
                         self.setupResult = .notAuthorized
-                        self.isCameraAuthorized = false
+                        self.updateCameraState(isAuthorized: false)
                         print("📷 Camera authorization: permission denied")
                     }
                 }
             }
         default:
             setupResult = .notAuthorized
-            isCameraAuthorized = false
+            self.updateCameraState(isAuthorized: false)
             print("📷 Camera authorization: not authorized")
         }
     }
@@ -87,7 +107,7 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         // First stop any running session
         if session.isRunning {
             session.stopRunning()
-            isSessionRunning = false
+            updateCameraState(isRunning: false)
         }
         
         // Clear all inputs and outputs
@@ -252,14 +272,14 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
         shouldPostNotifications = withNotification
         
         // Reset start attempts counter on fresh start
-        if !isSessionRunning {
+        if !session.isRunning {
             startAttempts = 0
         }
         
         if session.isRunning {
             print("📷 Camera session already running")
             DispatchQueue.main.async {
-                self.isSessionRunning = true
+                self.updateCameraState(isRunning: true)
                 
                 // Still post the notification if requested
                 if withNotification {
@@ -309,7 +329,7 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                     print("📷 Camera session running status: \(sessionRunning)")
                     
                     DispatchQueue.main.async {
-                        self.isSessionRunning = sessionRunning
+                        self.updateCameraState(isRunning: sessionRunning)
                         
                         if sessionRunning {
                             // Success - post notification if requested
@@ -338,7 +358,7 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
                 } else {
                     print("📷 Session was already running in background")
                     DispatchQueue.main.async {
-                        self.isSessionRunning = true
+                        self.updateCameraState(isRunning: true)
                         
                         // Session was running already - still post notification if requested
                         if self.shouldPostNotifications {
@@ -370,7 +390,7 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
             videoProcessingQueue.async {
                 self.session.stopRunning()
                 DispatchQueue.main.async {
-                    self.isSessionRunning = self.session.isRunning
+                    self.updateCameraState(isRunning: self.session.isRunning)
                     print("📷 Camera session stopped")
                 }
             }
@@ -386,6 +406,8 @@ class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleB
     func cleanUp() {
         print("📷 Cleaning up camera resources")
         stopSession()
+        isSessionRunning = false
+        updateCameraState(isRunning: false)
     }
     
     // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate

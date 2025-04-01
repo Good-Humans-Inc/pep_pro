@@ -4,6 +4,9 @@ import AVFoundation
 import Combine
 
 class SpeechRecognitionManager: NSObject, ObservableObject {
+    // Reference to AppState
+    private let appState: AppState
+    
     // Published properties for UI updates
     @Published var isListening = false
     @Published var recognizedText = ""
@@ -22,8 +25,16 @@ class SpeechRecognitionManager: NSObject, ObservableObject {
     // For tracking previously seen text to detect changes
     private var lastTranscription = ""
     
-    override init() {
+    // Initialize with AppState
+    init(appState: AppState) {
+        self.appState = appState
         super.init()
+        
+        // Update speech state
+        updateSpeechState(isListening: isListening)
+        updateSpeechState(recognizedText: recognizedText)
+        updateSpeechState(isAuthorized: isSpeechAuthorized)
+        
         checkAuthorization()
     }
     
@@ -277,6 +288,26 @@ class SpeechRecognitionManager: NSObject, ObservableObject {
     
     // Clean up method
     func cleanUp() {
-        stopListening()
+        isListening = false
+        recognizedText = ""
+        updateSpeechState(isListening: false, recognizedText: "")
+    }
+    
+    // Update speech state in AppState
+    private func updateSpeechState(isListening: Bool? = nil, recognizedText: String? = nil, isAuthorized: Bool? = nil, error: String? = nil) {
+        DispatchQueue.main.async {
+            if let isListening = isListening {
+                self.appState.speechState.isListening = isListening
+            }
+            if let recognizedText = recognizedText {
+                self.appState.speechState.recognizedText = recognizedText
+            }
+            if let isAuthorized = isAuthorized {
+                self.appState.speechState.isSpeechAuthorized = isAuthorized
+            }
+            if let error = error {
+                self.appState.speechState.speechError = error
+            }
+        }
     }
 }
