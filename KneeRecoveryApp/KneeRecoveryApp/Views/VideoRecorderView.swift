@@ -9,19 +9,36 @@ struct CameraPreviewView: UIViewRepresentable {
     
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
-        
-        if let session = session {
-            let layer = AVCaptureVideoPreviewLayer(session: session)
-            layer.videoGravity = .resizeAspectFill
-            view.layer.addSublayer(layer)
-            self.previewLayer = layer
-        }
-        
+        view.backgroundColor = .black // 设置默认背景色
         return view
     }
     
     func updateUIView(_ uiView: UIView, context: Context) {
-        previewLayer?.frame = uiView.bounds
+        // 确保在主线程执行
+        DispatchQueue.main.async {
+            // 如果已有预览层，更新它的session和frame
+            if let existingLayer = previewLayer {
+                existingLayer.session = session
+                existingLayer.frame = uiView.bounds
+            }
+            // 如果没有预览层且session存在，创建新的
+            else if let session = session {
+                let newLayer = AVCaptureVideoPreviewLayer(session: session)
+                newLayer.videoGravity = .resizeAspectFill
+                newLayer.frame = uiView.bounds
+                uiView.layer.addSublayer(newLayer)
+                previewLayer = newLayer
+            }
+            
+            // 如果session为nil，移除现有预览层
+            if session == nil, let layer = previewLayer {
+                layer.removeFromSuperlayer()
+                previewLayer = nil
+            }
+        }
+        
+                print("updateUIView")
+                print(previewLayer)
     }
 }
 
@@ -109,7 +126,6 @@ struct ExerciseVideoRecorder: View {
                 // Camera preview
                 CameraPreviewView(session: recordingSession, previewLayer: $previewLayer)
                     .edgesIgnoringSafeArea(.all)
-                
                 // Overlay controls
                 VStack {
                     // Top bar with title
@@ -178,6 +194,13 @@ struct ExerciseVideoRecorder: View {
         .onDisappear {
             stopSession()
         }
+        .onChange(of: recordingSession, { oldValue, newValue in
+            if newValue != nil {
+                // 确保预览层更新
+                previewLayer?.session = newValue
+            }
+        })
+  
         .sheet(isPresented: $showingReviewSheet) {
             if let url = tempVideoURL {
                 VideoReviewView(videoURL: url, onAccept: {
@@ -195,6 +218,9 @@ struct ExerciseVideoRecorder: View {
     private func setupCaptureSession() {
         let session = AVCaptureSession()
         self.recordingSession = session
+        
+        print("setupCaptureSession")
+        print(session)
         
         session.beginConfiguration()
         
@@ -335,3 +361,4 @@ class VideoRecordingDelegate: NSObject, AVCaptureFileOutputRecordingDelegate {
         didFinishRecording(outputFileURL, error)
     }
 }
+

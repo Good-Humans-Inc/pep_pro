@@ -236,7 +236,10 @@ struct LandingView: View {
     
     // Breaking the exercises section into a separate computed property
     private var exercisesSection: some View {
-        Section(header: Text("Your Recommended Exercises").font(.headline)) {
+        Section(header: Text("Your Recommended Exercises")
+            .font(.headline)
+            .padding(.vertical, 5) // 调整 header 间距
+        ) {
             ForEach(exercises) { exercise in
                 ExerciseItemView(
                     exercise: exercise,
@@ -265,6 +268,8 @@ struct LandingView: View {
         // Check if we have cached exercises
         if let exercisesData = UserDefaults.standard.data(forKey: "PatientExercises"),
            let exercisesJson = try? JSONSerialization.jsonObject(with: exercisesData) as? [[String: Any]] {
+            print("exercisesJson")
+            print(exercisesJson)
             // Convert JSON to Exercise objects
             exercises = exercisesJson.compactMap { exerciseDict -> Exercise? in
                 guard let name = exerciseDict["name"] as? String,
@@ -288,11 +293,18 @@ struct LandingView: View {
                     return nil
                 }
                 
+                var thumbnailStr = ""
+                if let thumbnailURL = getYouTubeThumbnailURL(from: exerciseDict["video_url"] as? String ?? "") {
+                    print(thumbnailURL) // 输出: https://img.youtube.com/vi/1iZg_e4veWk/hqdefault.jpg
+                    thumbnailStr = thumbnailURL
+                }
+                
                 return Exercise(
                     id: UUID(),
                     name: name,
                     description: description,
                     imageURLString: exerciseDict["video_url"] as? String,
+                    imageURLString1: thumbnailStr,
                     duration: 180, // Default duration
                     targetJoints: targetJoints.isEmpty ? [.leftKnee, .rightKnee] : targetJoints,
                     instructions: instructions.isEmpty ? ["Follow the video instructions"] : instructions
@@ -310,6 +322,27 @@ struct LandingView: View {
             fetchExercisesFromAPI(patientId: patientId)
         }
     }
+    
+    //获取封面
+    func getYouTubeThumbnailURL(from videoURL: String) -> String? {
+        guard let videoID = extractYouTubeVideoID(from: videoURL) else {
+            return nil
+        }
+        return "https://img.youtube.com/vi/\(videoID)/hqdefault.jpg" // 可改为 maxresdefault.jpg 获取高清图
+    }
+
+    func extractYouTubeVideoID(from url: String) -> String? {
+        let pattern = #"(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
+        let range = NSRange(location: 0, length: url.utf16.count)
+        if let match = regex.firstMatch(in: url, options: [], range: range) {
+            if let videoIDRange = Range(match.range(at: 1), in: url) {
+                return String(url[videoIDRange])
+            }
+        }
+        return nil
+    }
+    
     
     private func fetchExercisesFromAPI(patientId: String) {
         // API endpoint
@@ -450,13 +483,14 @@ struct ResetOnboardingButton: View {
 extension Exercise {
     // Convert from BodyJointType to Joint if needed
     init(id: UUID = UUID(), name: String, description: String,
-         imageURLString: String? = nil, duration: TimeInterval = 180,
+         imageURLString: String? = nil,imageURLString1: String? = nil, duration: TimeInterval = 180,
          targetJoints: [Joint] = [], instructions: [String] = [],
          firestoreId: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
         self.imageURL = imageURLString != nil ? URL(string: imageURLString!) : nil
+        self.imageURL1 = imageURLString1 != nil ? URL(string: imageURLString1!) : nil
         self.duration = duration
         self.firestoreId = firestoreId
         
@@ -481,3 +515,4 @@ extension Exercise {
         self.instructions = instructions
     }
 }
+

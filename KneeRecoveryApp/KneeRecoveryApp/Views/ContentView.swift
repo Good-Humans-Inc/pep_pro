@@ -26,44 +26,62 @@ struct ContentView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            if appState.isOnboardingComplete {
-                LandingView()
-                    .environmentObject(appState)
-                    .environmentObject(voiceManager)
-                    .environmentObject(cameraManager)
-                    .environmentObject(speechRecognitionManager)
-                    .environmentObject(resourceCoordinator)
-                    .environmentObject(visionManager)
-            } else {
-                OnboardingView()
-                    .environmentObject(appState)
-                    .environmentObject(voiceManager)
-                    .environmentObject(cameraManager)
-                    .environmentObject(speechRecognitionManager)
-                    .environmentObject(resourceCoordinator)
-                    .environmentObject(visionManager)
-            }
+        if appState.isOnboardingComplete {
+            LandingView()
+                .environmentObject(appState)
+                .environmentObject(voiceManager)
+                .environmentObject(cameraManager)
+                .environmentObject(speechRecognitionManager)
+                .environmentObject(resourceCoordinator)
+                .environmentObject(visionManager)
+                .onAppear {
+                    // Configure resource coordinator
+                    resourceCoordinator.configure(
+                        cameraManager: cameraManager,
+                        visionManager: visionManager,
+                        voiceManager: voiceManager,
+                        speechRecognitionManager: speechRecognitionManager
+                    )
+                    
+                    // Ensure any lingering sessions are terminated
+                    if voiceManager.isSessionActive {
+                        print("⚠️ Terminating lingering voice session")
+                        voiceManager.endElevenLabsSession()
+                    }
+                }
+                .onDisappear {
+                    // Clean up resources when view disappears
+                    cleanupResources()
+                }
+        } else {
+            OnboardingView()
+                .environmentObject(appState)
+                .environmentObject(voiceManager)
+                .environmentObject(cameraManager)
+                .environmentObject(speechRecognitionManager)
+                .environmentObject(resourceCoordinator)
+                .environmentObject(visionManager)
+                .onAppear {
+                    // Configure resource coordinator
+                    resourceCoordinator.configure(
+                        cameraManager: cameraManager,
+                        visionManager: visionManager,
+                        voiceManager: voiceManager,
+                        speechRecognitionManager: speechRecognitionManager
+                    )
+                    
+                    // Ensure any lingering sessions are terminated
+                    if voiceManager.isSessionActive {
+                        print("⚠️ Terminating lingering voice session")
+                        voiceManager.endElevenLabsSession()
+                    }
+                }
+                .onDisappear {
+                    // Clean up resources when view disappears
+                    cleanupResources()
+                }
         }
-        .onAppear {
-            // Configure resource coordinator
-            resourceCoordinator.configure(
-                cameraManager: cameraManager,
-                visionManager: visionManager,
-                voiceManager: voiceManager,
-                speechRecognitionManager: speechRecognitionManager
-            )
-            
-            // Ensure any lingering sessions are terminated
-            if voiceManager.isSessionActive {
-                print("⚠️ Terminating lingering voice session")
-                voiceManager.endElevenLabsSession()
-            }
-        }
-        .onDisappear {
-            // Clean up resources when view disappears
-            cleanupResources()
-        }
+ 
     }
     
     private func cleanupResources() {
@@ -81,4 +99,5 @@ struct ContentView: View {
             print("❌ Failed to deactivate audio session: \(error)")
         }
     }
-} 
+}
+
