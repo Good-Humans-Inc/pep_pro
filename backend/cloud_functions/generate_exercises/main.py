@@ -29,10 +29,15 @@ def access_secret_version(secret_id, version_id="latest"):
 # Initialize Firestore DB (default)
 db = firestore.Client()
 
+# Google Custom Search API constants
+GOOGLE_API_KEY = "AIzaSyBvd7NSR-uoBNu3IK3KwIN5X5M-CmrqsMw"
+GOOGLE_CSE_ID = "a3043470708db4323"
+
 @functions_framework.http
 def generate_exercises(request):
     """
-    Cloud Function to generate exercises for a patient using LLM.
+    Cloud Function to generate exercises for a patient using LLM and
+    add real video URLs using Google Custom Search API.
     
     Request format:
     {
@@ -65,6 +70,11 @@ def generate_exercises(request):
         existing_exercises = check_existing_exercises(patient_id)
         
         if existing_exercises and len(existing_exercises) >= 3:
+            # Make sure existing exercises have video thumbnails
+            for exercise in existing_exercises:
+                if not exercise.get('video_thumbnail') and exercise.get('video_url'):
+                    exercise['video_thumbnail'] = get_video_thumbnail(exercise['video_url'])
+            
             return (json.dumps({
                 'status': 'success', 
                 'exercises': existing_exercises,
@@ -76,16 +86,19 @@ def generate_exercises(request):
         if not patient_data:
             return (json.dumps({'error': 'Patient not found'}, cls=DateTimeEncoder), 404, headers)
         
-        # 3. Generate exercises using LLM
+        # 3. Generate exercises using LLM (without video URLs)
         if llm_provider == 'openai':
             exercises = generate_exercises_with_openai(patient_data)
         else:  # Default to Claude
             exercises = generate_exercises_with_claude(patient_data)
         
-        # 4. Save the generated exercises to Firestore
-        saved_exercises = save_exercises(exercises, patient_id)
+        # 4. Enhance exercises with real video URLs and thumbnails
+        enhanced_exercises = enhance_exercises_with_videos(exercises)
         
-        # 5. Return the exercises
+        # 5. Save the generated exercises to Firestore
+        saved_exercises = save_exercises(enhanced_exercises, patient_id)
+        
+        # 6. Return the exercises
         return (json.dumps({
             'status': 'success',
             'exercises': saved_exercises,
@@ -154,6 +167,7 @@ def get_patient_data(patient_id):
 def generate_exercises_with_claude(patient_data):
     """
     Generate exercises using Anthropic's Claude API
+    (Modified to request exercises without video URLs)
     """
     try:
         # Get API key from Secret Manager
@@ -186,7 +200,8 @@ def generate_exercises_with_claude(patient_data):
         2. A concise description
         3. Target joints (comma-separated list)
         4. Step-by-step instructions (semicolon-separated list)
-        5. A URL for a representative video if available
+        
+        DO NOT include video URLs or links. I will add them separately.
         
         Format your response as JSON according to this structure:
         ```json
@@ -199,8 +214,7 @@ def generate_exercises_with_claude(patient_data):
               "Step 1",
               "Step 2",
               "Step 3"
-            ],
-            "video_url": "https://example.com/video.mp4"
+            ]
           }}
         ]
         ```
@@ -251,6 +265,7 @@ def generate_exercises_with_claude(patient_data):
 def generate_exercises_with_openai(patient_data):
     """
     Generate exercises using OpenAI's GPT API
+    (Modified to request exercises without video URLs)
     """
     try:
         # Get API key from Secret Manager
@@ -283,7 +298,8 @@ def generate_exercises_with_openai(patient_data):
         2. A concise description
         3. Target joints (comma-separated list)
         4. Step-by-step instructions (semicolon-separated list)
-        5. A URL for a representative video if available
+        
+        DO NOT include video URLs or links. I will add them separately.
         
         Format your response as JSON according to this structure:
         [
@@ -295,8 +311,7 @@ def generate_exercises_with_openai(patient_data):
               "Step 1",
               "Step 2",
               "Step 3"
-            ],
-            "video_url": "https://example.com/video.mp4"
+            ]
           }}
         ]
         
@@ -334,6 +349,105 @@ def generate_exercises_with_openai(patient_data):
         raise Exception(f"Error in generate_exercises_with_openai: {str(e)}")
 
 
+def enhance_exercises_with_videos(exercises):
+    """
+    Add real video URLs and thumbnails to exercises using Google Custom Search API
+    """
+    enhanced_exercises = []
+    
+    for exercise in exercises:
+        # Create search query for exercise videos
+        search_query = f"{exercise['name']} knee physical therapy exercise"
+        video_data = search_youtube_video(search_query)
+        
+        # Add video data to exercise
+        exercise_with_video = exercise.copy()
+        
+        if video_data:
+            exercise_with_video['video_url'] = video_data.get('video_url', '')
+            exercise_with_video['video_thumbnail'] = video_data.get('thumbnail', '')
+        else:
+            # Fallback if no video found
+            exercise_with_video['video_url'] = ''
+            exercise_with_video['video_thumbnail'] = ''
+        
+        enhanced_exercises.append(exercise_with_video)
+    
+    return enhanced_exercises
+
+
+def search_youtube_video(query):
+    """
+    Search for YouTube videos using Google Custom Search API and return the URL and thumbnail
+    of the most relevant video.
+    """
+    try:
+        # Build the API request
+        url = "https://www.googleapis.com/customsearch/v1"
+        params = {
+            'key': GOOGLE_API_KEY,
+            'cx': GOOGLE_CSE_ID,
+            'q': query,
+            'searchType': 'video',
+            'videoSyndicated': 'true',  # Only return embeddable videos
+            'num': 1  # Just get the top result
+        }
+        
+        response = requests.get(url, params=params)
+        
+        if response.status_code != 200:
+            print(f"Google Search API error: {response.text}")
+            return None
+        
+        data = response.json()
+        
+        # Check if we got search results
+        if 'items' not in data or len(data['items']) == 0:
+            return None
+        
+        # Get the first result
+        video_item = data['items'][0]
+        
+        # Get the video URL
+        video_url = video_item.get('link', '')
+        
+        # Get thumbnail image if available
+        thumbnail = ''
+        if 'pagemap' in video_item and 'cse_image' in video_item['pagemap']:
+            thumbnail = video_item['pagemap']['cse_image'][0].get('src', '')
+        elif 'pagemap' in video_item and 'videoobject' in video_item['pagemap']:
+            thumbnail = video_item['pagemap']['videoobject'][0].get('thumbnailurl', '')
+        
+        return {
+            'video_url': video_url,
+            'thumbnail': thumbnail
+        }
+    except Exception as e:
+        print(f"Error searching for video: {str(e)}")
+        return None
+
+
+def get_video_thumbnail(video_url):
+    """
+    Extract or generate a thumbnail URL from a video URL if possible.
+    This is a fallback for existing exercises that may not have thumbnails.
+    """
+    # For YouTube videos
+    if 'youtube.com' in video_url or 'youtu.be' in video_url:
+        # Extract YouTube video ID
+        video_id = None
+        if 'youtube.com/watch?v=' in video_url:
+            video_id = video_url.split('youtube.com/watch?v=')[1].split('&')[0]
+        elif 'youtu.be/' in video_url:
+            video_id = video_url.split('youtu.be/')[1].split('?')[0]
+        
+        if video_id:
+            return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+    
+    # Default empty if we can't determine the thumbnail
+    return ""
+
+
 def save_exercises(exercises, patient_id):
     """
     Save generated exercises to Firestore and link them to the patient
@@ -348,6 +462,19 @@ def save_exercises(exercises, patient_id):
             # Use existing exercise
             exercise_id = similar_exercises[0].id
             exercise_data = similar_exercises[0].to_dict()
+            
+            # Update with video URL and thumbnail if they were missing
+            if (not exercise_data.get('video_url') and exercise.get('video_url')) or \
+               (not exercise_data.get('video_thumbnail') and exercise.get('video_thumbnail')):
+                updates = {}
+                if not exercise_data.get('video_url') and exercise.get('video_url'):
+                    updates['video_url'] = exercise['video_url']
+                if not exercise_data.get('video_thumbnail') and exercise.get('video_thumbnail'):
+                    updates['video_thumbnail'] = exercise['video_thumbnail']
+                
+                if updates:
+                    db.collection('exercises').document(exercise_id).update(updates)
+                    exercise_data.update(updates)
         else:
             # Create new exercise
             exercise_id = str(uuid.uuid4())
@@ -367,6 +494,7 @@ def save_exercises(exercises, patient_id):
                 'target_joints': exercise['target_joints'],
                 'instructions': exercise['instructions'],
                 'video_url': exercise.get('video_url', ''),
+                'video_thumbnail': exercise.get('video_thumbnail', ''),
                 'created_at': datetime.now(),
                 'is_template': False,
                 'source': 'llm-generated'
