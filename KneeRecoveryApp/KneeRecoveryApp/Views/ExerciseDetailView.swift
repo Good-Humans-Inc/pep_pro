@@ -42,7 +42,7 @@ struct ExerciseDetailView: View {
     // Environment objects
     @EnvironmentObject private var cameraManager: CameraManager
     @EnvironmentObject private var visionManager: VisionManager
-    @EnvironmentObject private var voiceManager: VoiceManager
+    @EnvironmentObject var voiceManager: VoiceManager
     @EnvironmentObject private var speechRecognitionManager: SpeechRecognitionManager
     @EnvironmentObject private var resourceCoordinator: ResourceCoordinator
     
