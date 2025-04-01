@@ -3,7 +3,6 @@ import AVFoundation
 import Combine
 import ElevenLabsSDK
 import Network
-import SwiftUI
 
 // Define agent types
 enum AgentType {
@@ -29,13 +28,6 @@ enum AgentType {
     }
 }
 
-struct ConversationMessage: Identifiable {
-    let id = UUID()
-    let content: String
-    let role: ElevenLabsSDK.Role
-    let timestamp: Date
-}
-
 class VoiceManager: NSObject, ObservableObject {
     // Reference to AppState
     private let appState: AppState
@@ -55,7 +47,6 @@ class VoiceManager: NSObject, ObservableObject {
     @Published var hasCompletedOnboarding = false
     @Published var isSessionActive = false  // Track if the session is active
     @Published var currentAgentType: AgentType? = nil
-    @Published private(set) var conversationHistory: [ConversationMessage] = []
     
     // Track session operations
     private var sessionOperationInProgress = false
@@ -75,7 +66,7 @@ class VoiceManager: NSObject, ObservableObject {
     private let speechSynthesizer = AVSpeechSynthesizer()
     
     // ElevenLabs conversation
-    var conversation: ElevenLabsSDK.Conversation?
+    private var conversation: ElevenLabsSDK.Conversation?
     
     // Audio session
     private let audioSession = AVAudioSession.sharedInstance()
@@ -348,8 +339,21 @@ class VoiceManager: NSObject, ObservableObject {
                 
                 // Message transcripts
                 callbacks.onMessage = { [weak self] message, role in
-                    self?.recordMessage(message, role: role)
-                    // ... any existing onMessage handling ...
+                    guard let self = self else { return }
+                    print("📝 ElevenLabs \(agentType.displayName) message (\(role.rawValue)): \(message)")
+                    
+                    // Try to extract JSON from the message if in onboarding mode
+                    if agentType == .onboarding {
+                        self.tryExtractJson(from: message)
+                    }
+                    
+                    DispatchQueue.main.async {
+                        if role == .user {
+                            self.transcribedText = message
+                        } else if role == .ai {
+                            self.lastSpokenText = message
+                        }
+                    }
                 }
                 
                 // Error handling
@@ -1166,60 +1170,6 @@ class VoiceManager: NSObject, ObservableObject {
             self.appState.voiceState.lastSpokenText = lastSpokenText
         }
     }
-    
-    // Add this method to record messages
-    private func recordMessage(_ content: String, role: ElevenLabsSDK.Role) {
-        let message = ConversationMessage(content: content, role: role, timestamp: Date())
-        DispatchQueue.main.async {
-            self.conversationHistory.append(message)
-        }
-    }
-    
-    // Update your message handling callbacks to use recordMessage
-    private func setupCallbacks() {
-        callbacks.onMessage = { [weak self] message, role in
-            self?.recordMessage(message, role: role)
-            // ... any existing onMessage handling ...
-        }
-        
-        // ... rest of your callback setup ...
-    }
-    
-    private func configureCallbacks(for agentType: AgentType) -> ElevenLabsSDK.Callbacks {
-        var callbacks = ElevenLabsSDK.Callbacks()
-        
-        callbacks.onMessage = { [weak self] message, role in
-            guard let self = self else { return }
-            print("📝 ElevenLabs \(agentType.displayName) message (\(role.rawValue)): \(message)")
-            
-            // Record the message in conversation history
-            self.recordMessage(message, role: role)
-            
-            // Try to extract JSON from the message if in onboarding mode
-            if agentType == .onboarding {
-                self.tryExtractJson(from: message)
-            }
-            
-            DispatchQueue.main.async {
-                if role == .user {
-                    self.transcribedText = message
-                } else if role == .ai {
-                    self.lastSpokenText = message
-                }
-            }
-        }
-        
-        // ... rest of your callback configuration ...
-        
-        return callbacks
-    }
-    
-    // Add method to clear conversation history
-    func clearConversationHistory() {
-        DispatchQueue.main.async {
-            self.conversationHistory.removeAll()
-        }
-    }
 }
 
 // MARK: - AVSpeechSynthesizerDelegate
@@ -1238,4 +1188,3 @@ extension VoiceManager: AVSpeechSynthesizerDelegate {
         }
     }
 }
-

@@ -3,24 +3,21 @@ import ElevenLabsSDK
 
 struct ExerciseReportView: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject var voiceManager: VoiceManager
+    @EnvironmentObject private var voiceManager: VoiceManager
     
     @State private var showingCongrats = true
     @State private var feedbackData: ExerciseFeedbackData
-    @State private var isLoadingReport = false
-    @State private var reportError: String? = nil
     
     // Exercise data
     let exercise: Exercise
     let duration: TimeInterval
     let date: Date
-    let conversationContent: String?
     
-    init(exercise: Exercise, duration: TimeInterval, conversationContent: String? = nil, feedbackData: ExerciseFeedbackData? = nil, date: Date = Date()) {
+    init(exercise: Exercise, duration: TimeInterval, feedbackData: ExerciseFeedbackData? = nil, date: Date = Date()) {
         self.exercise = exercise
         self.duration = duration
         self.date = date
-        self.conversationContent = conversationContent
+        // Initialize with provided feedback data or defaults
         self._feedbackData = State(initialValue: feedbackData ?? ExerciseFeedbackData.defaultData)
     }
     
@@ -74,34 +71,12 @@ struct ExerciseReportView: View {
                     }
                 }
             }
-            
-            if isLoadingReport {
-                Color.black.opacity(0.4)
-                    .edgesIgnoringSafeArea(.all)
-                VStack {
-                    ProgressView("Generating report...")
-                        .padding()
-                        .background(Color.white)
-                        .cornerRadius(10)
-                }
-            }
         }
         .onAppear {
-            if let content = conversationContent {
-                generateReportFromConversation(content)
-            } else {
+            // Load additional feedback data if needed
+            if feedbackData == ExerciseFeedbackData.defaultData {
                 loadFeedbackData()
             }
-        }
-        .alert(item: Binding(
-            get: { reportError.map { ReportError(message: $0) } },
-            set: { reportError = $0?.message }
-        )) { error in
-            Alert(
-                title: Text("Report Generation Error"),
-                message: Text(error.message),
-                dismissButton: .default(Text("OK"))
-            )
         }
     }
     
@@ -112,98 +87,6 @@ struct ExerciseReportView: View {
             
             feedbackData = decodedFeedback
         }
-    }
-    
-    private func generateReportFromConversation(_ content: String) {
-        guard let patientId = voiceManager.patientId else {
-            reportError = "No patient ID available"
-            return
-        }
-        
-        isLoadingReport = true
-        
-        // API endpoint
-        let urlString = "https://us-central1-pep-pro.cloudfunctions.net/generate_exercise_report"
-        guard let url = URL(string: urlString) else {
-            reportError = "Invalid API URL"
-            isLoadingReport = false
-            return
-        }
-        
-        // Create request
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // Request body
-        let requestBody: [String: Any] = [
-            "conversation_content": content,
-            "patient_id": patientId,
-            "exercise_id": exercise.firestoreId ?? exercise.id.uuidString
-        ]
-        
-        // Convert data to JSON
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        } catch {
-            reportError = "Failed to create request: \(error.localizedDescription)"
-            isLoadingReport = false
-            return
-        }
-        
-        // Make API call
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                isLoadingReport = false
-                
-                if let error = error {
-                    reportError = "Network error: \(error.localizedDescription)"
-                    return
-                }
-                
-                guard let data = data else {
-                    reportError = "No data received"
-                    return
-                }
-                
-                do {
-                    // Parse response
-                    let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                    
-                    if let status = jsonResponse?["status"] as? String,
-                       status == "success",
-                       let reportData = jsonResponse?["report"] as? [String: Any] {
-                        
-                        // Convert report data to ExerciseFeedbackData
-                        let newFeedback = ExerciseFeedbackData(
-                            generalFeeling: reportData["general_feeling"] as? String ?? "No data available",
-                            performanceQuality: reportData["performance_quality"] as? String ?? "No data available",
-                            painReport: reportData["pain_report"] as? String ?? "No pain reported",
-                            completed: reportData["completed"] as? Bool ?? true,
-                            setsCompleted: reportData["sets_completed"] as? Int ?? 0,
-                            repsCompleted: reportData["reps_completed"] as? Int ?? 0,
-                            dayStreak: reportData["day_streak"] as? Int ?? 1,
-                            motivationalMessage: reportData["motivational_message"] as? String ?? "Great job with your exercise!"
-                        )
-                        
-                        // Update the view's feedback data
-                        feedbackData = newFeedback
-                        
-                        // Save to UserDefaults for persistence
-                        if let encodedData = try? JSONEncoder().encode(newFeedback) {
-                            UserDefaults.standard.set(encodedData, forKey: "LastExerciseFeedback")
-                        }
-                        
-                    } else if let errorMsg = jsonResponse?["error"] as? String {
-                        reportError = errorMsg
-                    } else {
-                        reportError = "Invalid server response"
-                    }
-                } catch {
-                    reportError = "Failed to parse response: \(error.localizedDescription)"
-                }
-            }
-        }.resume()
     }
 }
 
@@ -585,56 +468,44 @@ extension VoiceManager {
     }
 }
 
-// Add ReportError type for alert handling
-struct ReportError: Identifiable {
-    let id = UUID()
-    let message: String
-}
-
-// Update VoiceManager extension
-extension VoiceManager {
-    func captureExerciseConversation() -> String {
-        // Return the stored conversation messages
-        var conversationText = ""
-        
-        // Access the stored messages from conversation history
-        for message in conversationHistory { 
-            conversationText += "\(message.role.rawValue): \(message.content)\n"
+// Helper to present the ExerciseReportView
+extension View {
+    func showExerciseReport(exercise: Exercise, duration: TimeInterval, feedbackData: ExerciseFeedbackData? = nil) -> some View {
+        self.sheet(isPresented: .constant(true)) {
+            ExerciseReportView(
+                exercise: exercise,
+                duration: duration,
+                feedbackData: feedbackData
+            )
         }
-        
-        return conversationText
     }
 }
 
-// Update ExerciseDetailView extension
+// Usage in your ExerciseDetailView
 extension ExerciseDetailView {
     func presentExerciseReport(duration: TimeInterval) {
-        // Get conversation content from voice manager
-        let conversationContent = voiceManager.captureExerciseConversation()
+        // Check if feedback data is available
+        var feedbackData: ExerciseFeedbackData? = nil
         
-        // Create and configure the report view
+        if let storedFeedback = UserDefaults.standard.data(forKey: "LastExerciseFeedback"),
+           let decodedFeedback = try? JSONDecoder().decode(ExerciseFeedbackData.self, from: storedFeedback) {
+            feedbackData = decodedFeedback
+        }
+        
+        // Present the report view
         let reportView = ExerciseReportView(
             exercise: exercise,
             duration: duration,
-            conversationContent: conversationContent
+            feedbackData: feedbackData
         )
-        .environmentObject(voiceManager)
         
-        // Present using UIKit
+        // Use UIKit to present the view modally
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootViewController = windowScene.windows.first?.rootViewController {
             
             let hostingController = UIHostingController(rootView: reportView)
-            hostingController.modalPresentationStyle = .fullScreen
-            hostingController.view.backgroundColor = .clear
+            hostingController.modalPresentationStyle = UIModalPresentationStyle.fullScreen
             rootViewController.present(hostingController, animated: true)
         }
-    }
-}
-
-// Helper extension for UIColor
-extension UIColor {
-    static var clear: UIColor {
-        UIColor(red: 0, green: 0, blue: 0, alpha: 0)
     }
 }
