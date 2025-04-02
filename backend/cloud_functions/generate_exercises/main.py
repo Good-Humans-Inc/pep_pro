@@ -486,40 +486,90 @@ def search_youtube_video(query, google_api_key, google_cse_id, num_results=1):
         params = {
             'key': google_api_key,
             'cx': google_cse_id,
-            'q': query,
-            'videoSyndicated': 'true',  # Only return embeddable videos
+            'q': query + " youtube", # Add youtube to focus on YouTube results
             'num': num_results  # Number of results to return
         }
         
-        logger.info(f"Calling Google Custom Search API with query: '{query}'")
+        logger.info(f"Calling Google Custom Search API with query: '{query} youtube'")
+        logger.info(f"API URL: {url}")
+        logger.info(f"API params: cx={google_cse_id}, num={num_results}")
         
+        # Make the API request
         response = requests.get(url, params=params)
         
+        # Log the response status and headers
+        logger.info(f"API response status: {response.status_code}")
+        logger.info(f"API response headers: {response.headers}")
+        
+        # Check for errors
         if response.status_code != 200:
             logger.error(f"Google Search API error: {response.text}")
             return None
         
+        # Process the response
         data = response.json()
+        
+        # Log the full response structure for debugging
+        logger.info(f"API response keys: {list(data.keys())}")
+        
+        if 'searchInformation' in data:
+            logger.info(f"Search info: {data['searchInformation']}")
         
         # Check if we got search results
         if 'items' not in data or len(data['items']) == 0:
             logger.warning("No search results found")
+            if 'error' in data:
+                logger.error(f"API returned error: {data['error']}")
             return None
+        
+        # Log the number of results
+        logger.info(f"Found {len(data['items'])} search results")
         
         # Get all video results
         all_videos = []
-        for item in data['items']:
-            video_url = item.get('link', '')
+        for idx, item in enumerate(data['items']):
+            # Log the structure of each result
+            logger.info(f"Result {idx+1} keys: {list(item.keys())}")
             
+            video_url = item.get('link', '')
+            logger.info(f"Result {idx+1} link: {video_url}")
+            
+            # Check if this is a YouTube link
+            is_youtube = 'youtube.com' in video_url or 'youtu.be' in video_url
+            logger.info(f"Result {idx+1} is YouTube: {is_youtube}")
+            
+            # Only process YouTube links
+            if not is_youtube:
+                logger.info(f"Skipping non-YouTube result: {video_url}")
+                continue
+                
             # Get thumbnail image if available
             thumbnail = ''
-            if 'pagemap' in item and 'cse_image' in item['pagemap']:
-                thumbnail = item['pagemap']['cse_image'][0].get('src', '')
-            elif 'pagemap' in item and 'videoobject' in item['pagemap']:
-                thumbnail = item['pagemap']['videoobject'][0].get('thumbnailurl', '')
+            if 'pagemap' in item:
+                logger.info(f"Result {idx+1} pagemap keys: {list(item['pagemap'].keys())}")
+                
+                if 'cse_image' in item['pagemap']:
+                    thumbnail = item['pagemap']['cse_image'][0].get('src', '')
+                    logger.info(f"Found thumbnail in cse_image: {thumbnail}")
+                elif 'videoobject' in item['pagemap']:
+                    thumbnail = item['pagemap']['videoobject'][0].get('thumbnailurl', '')
+                    logger.info(f"Found thumbnail in videoobject: {thumbnail}")
+            else:
+                logger.warning(f"Result {idx+1} has no pagemap")
             
-            logger.info(f"Found video: {video_url}")
-            logger.info(f"Video thumbnail: {thumbnail}")
+            # If no thumbnail found, generate one from YouTube video ID
+            if not thumbnail and is_youtube:
+                video_id = None
+                if 'youtube.com/watch?v=' in video_url:
+                    video_id = video_url.split('youtube.com/watch?v=')[1].split('&')[0]
+                elif 'youtu.be/' in video_url:
+                    video_id = video_url.split('youtu.be/')[1].split('?')[0]
+                
+                if video_id:
+                    thumbnail = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+                    logger.info(f"Generated thumbnail from video ID: {thumbnail}")
+            
+            logger.info(f"Final result {idx+1}: URL={video_url}, Thumbnail={thumbnail}")
             
             all_videos.append({
                 'title': item.get('title', 'Unknown'),
@@ -527,22 +577,18 @@ def search_youtube_video(query, google_api_key, google_cse_id, num_results=1):
                 'thumbnail': thumbnail
             })
         
-        # If we were only asked for one result, return the first one
-        if num_results == 1 and all_videos:
-            return all_videos[0]
-        
-        # If we're looking for multiple videos, check if any of them are valid
-        for video in all_videos:
-            if validate_video_url(video['video_url'], "exercise"):
-                logger.info(f"Selected valid video: {video['video_url']}")
-                return video
-                
-        # If we checked all videos and none are valid, return the first one anyway
+        # If we have YouTube results
         if all_videos:
-            logger.warning("No valid videos found, returning first result anyway")
-            return all_videos[0]
+            logger.info(f"Found {len(all_videos)} YouTube videos")
+            # Return the first result
+            result = all_videos[0]
+            logger.info(f"Returning video: {result['video_url']}")
+            logger.info(f"With thumbnail: {result['thumbnail']}")
+            return result
+        else:
+            logger.warning("No YouTube videos found in search results")
+            return None
             
-        return None
     except Exception as e:
         logger.error(f"Error searching for video: {str(e)}", exc_info=True)
         return None
