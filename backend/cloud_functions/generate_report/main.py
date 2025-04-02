@@ -241,25 +241,40 @@ def generate_report(request):
         
         # Store report in Firestore
         report_ref = db.collection('exercise_reports').document()
-        report_data.update({
+        
+        # Create the report data without the timestamp first
+        report_data_to_store = {
             'patient_id': patient_id,
             'exercise_id': exercise_id,
-            'timestamp': firestore.SERVER_TIMESTAMP,
             'exercise_name': exercise_data.get('name', 'Unknown'),
             'exercise_description': exercise_data.get('description', ''),
             'target_joints': exercise_data.get('target_joints', []),
             'instructions': exercise_data.get('instructions', []),
             'duration_minutes': metrics['duration_minutes']
+        }
+        
+        # Add the report data from OpenAI
+        report_data_to_store.update(report_data)
+        
+        # Store in Firestore with server timestamp
+        report_ref.set({
+            **report_data_to_store,
+            'timestamp': firestore.SERVER_TIMESTAMP
         })
-        report_ref.set(report_data)
         
         logger.info(f"Successfully generated and stored report for patient {patient_id}")
         
-        return (json.dumps({
+        # For the response, use current timestamp since we can't serialize SERVER_TIMESTAMP
+        response_data = {
             'status': 'success',
             'report_id': report_ref.id,
-            'report': report_data
-        }, cls=DateTimeEncoder), 200, headers)
+            'report': {
+                **report_data_to_store,
+                'timestamp': datetime.now().isoformat()
+            }
+        }
+        
+        return (json.dumps(response_data, cls=DateTimeEncoder), 200, headers)
         
     except Exception as e:
         logger.error(f"Error generating report: {str(e)}", exc_info=True)
