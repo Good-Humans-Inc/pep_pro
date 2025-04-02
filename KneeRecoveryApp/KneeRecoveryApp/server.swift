@@ -115,4 +115,41 @@ class ServerAPI {
             // Could add success/error handling here
         }.resume()
     }
+    
+    func generatePTReport(patientId: String, exerciseId: String, conversationHistory: [[String: Any]], completion: @escaping (Result<[String: Any], Error>) -> Void) {
+        let url = URL(string: "\(baseURL)/generate_pt_report")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "patient_id": patientId,
+            "exercise_id": exerciseId,
+            "conversation_history": conversationHistory
+        ]
+        
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let data = data else {
+                completion(.failure(NSError(domain: "ServerAPI", code: 0, userInfo: [NSLocalizedDescriptionKey: "No data received"])))
+                return
+            }
+            
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    completion(.success(json))
+                } else {
+                    completion(.failure(NSError(domain: "ServerAPI", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid JSON response"])))
+                }
+            } catch {
+                completion(.failure(error))
+            }
+        }.resume()
+    }
 }

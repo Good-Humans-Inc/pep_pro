@@ -95,6 +95,16 @@ class VoiceManager: NSObject, ObservableObject {
     static let onboardingCompletedNotification = Notification.Name("OnboardingCompleted")
     static let exerciseCoachReadyNotification = Notification.Name("ExerciseCoachReady")
     
+    // Add conversation history storage
+    private static var conversationHistoryStorage: [[String: Any]] = []
+    private static let conversationHistoryLock = NSLock()
+    
+    // Add conversation history tracking
+    private var conversationMessages: [[String: Any]] = []
+    
+    // Add property to track current exercise
+    private var currentExerciseId: String?
+    
     init(appState: AppState) {
         self.appState = appState
         super.init()
@@ -340,10 +350,16 @@ class VoiceManager: NSObject, ObservableObject {
                 // Message transcripts
                 callbacks.onMessage = { [weak self] message, role in
                     guard let self = self else { return }
-                    print("📝 ElevenLabs \(agentType.displayName) message (\(role.rawValue)): \(message)")
+                    print("📝 ElevenLabs \(self.currentAgentType?.displayName ?? "Unknown") message (\(role.rawValue)): \(message)")
+                    
+                    // Record all messages for both onboarding and exercise coach
+                    self.conversationMessages.append([
+                        "role": role == .user ? "user" : "ai",
+                        "content": message
+                    ])
                     
                     // Try to extract JSON from the message if in onboarding mode
-                    if agentType == .onboarding {
+                    if self.currentAgentType == .onboarding {
                         self.tryExtractJson(from: message)
                     }
                     
@@ -1118,6 +1134,11 @@ class VoiceManager: NSObject, ObservableObject {
     func cleanUp() {
         print("Cleaning up VoiceManager resources")
         
+        // End exercise session if active
+        if currentAgentType == .exerciseCoach {
+            endExerciseSession()
+        }
+        
         // Stop speaking and end session
         stopSpeaking()
         endElevenLabsSession()
@@ -1126,6 +1147,7 @@ class VoiceManager: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.transcribedText = ""
             self.lastSpokenText = ""
+            self.clearConversationHistory()
             
             // Reset all session request flags
             for agentType in [AgentType.onboarding, AgentType.exerciseCoach] {
@@ -1169,6 +1191,93 @@ class VoiceManager: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.appState.voiceState.lastSpokenText = lastSpokenText
         }
+    }
+    
+    // MARK: - Conversation History Management
+    
+    func getConversationHistory() -> [[String: Any]] {
+        return conversationMessages
+    }
+    
+    func clearConversationHistory() {
+        conversationMessages.removeAll()
+        print("🧹 Cleared conversation history")
+    }
+    
+    // MARK: - Exercise Session Management
+    
+    func startExerciseSession() {
+        clearConversationHistory() // Clear previous history
+        print("🎯 Starting new exercise session")
+    }
+    
+    func endExerciseSession() {
+        print("🏁 Ending exercise session with \(conversationMessages.count) messages")
+        
+        // Generate report using conversation history
+        if let patientId = self.patientId,
+           let exerciseId = self.currentExerciseId {
+            
+            // Call the server API to generate report
+            ServerAPI().generatePTReport(
+                patientId: patientId,
+                exerciseId: exerciseId,
+                conversationHistory: conversationMessages
+            ) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let response):
+                        if let status = response["status"] as? String,
+                           status == "success",
+                           let report = response["report"] as? [String: Any] {
+                            
+                            // Create feedback data from the report
+                            let feedbackData = ExerciseFeedbackData(
+                                generalFeeling: report["general_feeling"] as? String ?? "No feeling data provided",
+                                performanceQuality: report["performance_quality"] as? String ?? "No quality data provided",
+                                painReport: report["pain_report"] as? String ?? "No pain data provided",
+                                completed: report["completed"] as? Bool ?? true,
+                                setsCompleted: report["sets_completed"] as? Int ?? 0,
+                                repsCompleted: report["reps_completed"] as? Int ?? 0,
+                                dayStreak: report["day_streak"] as? Int ?? 1,
+                                motivationalMessage: report["motivational_message"] as? String ?? "Great job with your exercise today!"
+                            )
+                            
+                            // Save the feedback data
+                            if let encodedData = try? JSONEncoder().encode(feedbackData) {
+                                UserDefaults.standard.set(encodedData, forKey: "LastExerciseFeedback")
+                                
+                                // Post notification to update UI
+                                NotificationCenter.default.post(
+                                    name: Notification.Name("ExerciseFeedbackAvailable"),
+                                    object: nil,
+                                    userInfo: ["feedback": feedbackData]
+                                )
+                            }
+                            
+                            print("✅ Exercise report generated successfully")
+                        } else if let error = response["error"] as? String {
+                            print("❌ Failed to generate report: \(error)")
+                        }
+                        
+                    case .failure(let error):
+                        print("❌ Error generating report: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+        
+        // End ElevenLabs session
+        endElevenLabsSession()
+        
+        // Clear conversation history after saving
+        clearConversationHistory()
+    }
+    
+    // Method to set current exercise
+    func setCurrentExercise(id: String) {
+        currentExerciseId = id
+        print("🎯 Set current exercise ID: \(id)")
     }
 }
 

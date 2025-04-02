@@ -1,6 +1,29 @@
 import SwiftUI
 import ElevenLabsSDK
 
+// MARK: - Exercise Feedback Data Model
+struct ExerciseFeedbackData: Codable, Equatable {
+    var generalFeeling: String
+    var performanceQuality: String
+    var painReport: String
+    var completed: Bool
+    var setsCompleted: Int
+    var repsCompleted: Int
+    var dayStreak: Int
+    var motivationalMessage: String
+    
+    static let defaultData = ExerciseFeedbackData(
+        generalFeeling: "No data collected for this session.",
+        performanceQuality: "No quality assessment for this session.",
+        painReport: "No pain report for this session.",
+        completed: true,
+        setsCompleted: 0,
+        repsCompleted: 0,
+        dayStreak: 1,
+        motivationalMessage: "Great job completing your exercise! Keep up the good work to continue your recovery progress."
+    )
+}
+
 struct ExerciseReportView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var voiceManager: VoiceManager
@@ -27,17 +50,6 @@ struct ExerciseReportView: View {
             
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Close button
-                    HStack {
-                        Spacer()
-                        Button(action: { dismiss() }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.gray)
-                                .font(.title2)
-                        }
-                    }
-                    .padding(.bottom)
-                    
                     HeaderSection(exerciseName: exercise.name, date: date)
                     
                     FeedbackSection(title: "General Feeling",
@@ -84,33 +96,24 @@ struct ExerciseReportView: View {
         // Check if we have exercise feedback stored for this session
         if let storedFeedback = UserDefaults.standard.data(forKey: "LastExerciseFeedback"),
            let decodedFeedback = try? JSONDecoder().decode(ExerciseFeedbackData.self, from: storedFeedback) {
-            
             feedbackData = decodedFeedback
         }
     }
 }
 
-// Exercise Feedback Data Model
-struct ExerciseFeedbackData: Codable, Equatable {
-    var generalFeeling: String
-    var performanceQuality: String
-    var painReport: String
-    var completed: Bool
-    var setsCompleted: Int
-    var repsCompleted: Int
-    var dayStreak: Int
-    var motivationalMessage: String
+struct FeedbackSection: View {
+    let title: String
+    let content: String
     
-    static let defaultData = ExerciseFeedbackData(
-        generalFeeling: "No data collected for this session.",
-        performanceQuality: "No quality assessment for this session.",
-        painReport: "No pain report for this session.",
-        completed: true,
-        setsCompleted: 0,
-        repsCompleted: 0,
-        dayStreak: 1,
-        motivationalMessage: "Great job completing your exercise! Keep up the good work to continue your recovery progress."
-    )
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.headline)
+            Text(content)
+                .padding(.vertical, 5)
+            Divider()
+        }
+    }
 }
 
 // MARK: - Supporting Views
@@ -129,17 +132,42 @@ struct HeaderSection: View {
     }
 }
 
-struct FeedbackSection: View {
+struct SectionHeader: View {
+    let title: String
+    
+    var body: some View {
+        Text(title)
+            .font(.headline)
+            .foregroundColor(.primary)
+    }
+}
+
+struct InfoRow: View {
+    let title: String
+    let value: String
+    
+    var body: some View {
+        HStack {
+            Text(title)
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .bold()
+        }
+    }
+}
+
+struct DetailRow: View {
     let title: String
     let content: String
     
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
-                .font(.headline)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
             Text(content)
-                .padding(.vertical, 5)
-            Divider()
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -262,6 +290,7 @@ struct GeneratePTReportButton: View {
     @State private var isGenerating = false
     @State private var reportGenerated = false
     @State private var reportError: String? = nil
+    @EnvironmentObject private var voiceManager: VoiceManager
     
     var body: some View {
         VStack(spacing: 10) {
@@ -278,6 +307,7 @@ struct GeneratePTReportButton: View {
                 .cornerRadius(10)
                 .foregroundColor(.blue)
             }
+            .disabled(isGenerating)
             
             if isGenerating {
                 ProgressView("Generating report...")
@@ -285,7 +315,7 @@ struct GeneratePTReportButton: View {
             }
             
             if reportGenerated {
-                Text("Report generated successfully! Check your email.")
+                Text("Report generated successfully!")
                     .foregroundColor(.green)
                     .font(.caption)
                     .padding(.top, 5)
@@ -296,12 +326,13 @@ struct GeneratePTReportButton: View {
                     .foregroundColor(.red)
                     .font(.caption)
                     .padding(.top, 5)
+                    .multilineTextAlignment(.center)
             }
         }
         .alert(isPresented: $showingPTReportAlert) {
             Alert(
                 title: Text("Generate PT Report"),
-                message: Text("This feature will generate a comprehensive report for your Physical Therapist. Would you like to proceed?"),
+                message: Text("This will generate a comprehensive report based on your exercise session. Would you like to proceed?"),
                 primaryButton: .default(Text("Generate")) {
                     generatePTReport()
                 },
@@ -315,71 +346,67 @@ struct GeneratePTReportButton: View {
         reportGenerated = false
         reportError = nil
         
-        // API endpoint
-        let urlString = "https://us-central1-pep-pro.cloudfunctions.net/generate_pt_report"
-        guard let url = URL(string: urlString) else {
-            reportError = "Invalid API URL"
+        // Get conversation history
+        let conversationHistory = voiceManager.getConversationHistory()
+        
+        if conversationHistory.isEmpty {
+            reportError = "No exercise session data available.\nPlease complete an exercise session first."
             isGenerating = false
             return
         }
         
-        // Create request
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // Request body
-        let requestBody: [String: Any] = [
-            "patient_id": patientId,
-            "exercise_id": exerciseId,
-            "generate_pdf": true,
-            "send_email": true
-        ]
-        
-        // Convert data to JSON
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        } catch {
-            reportError = "Failed to create request: \(error.localizedDescription)"
-            isGenerating = false
-            return
-        }
-        
-        // Make API call
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        // Call the server API
+        ServerAPI().generatePTReport(
+            patientId: patientId,
+            exerciseId: exerciseId,
+            conversationHistory: conversationHistory
+        ) { result in
             DispatchQueue.main.async {
                 isGenerating = false
                 
-                if let error = error {
-                    reportError = "Network error: \(error.localizedDescription)"
-                    return
-                }
-                
-                guard let data = data else {
-                    reportError = "No data received"
-                    return
-                }
-                
-                do {
-                    // Parse response
-                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let status = json["status"] as? String {
+                switch result {
+                case .success(let response):
+                    if let status = response["status"] as? String,
+                       status == "success",
+                       let report = response["report"] as? [String: Any] {
                         
-                        if status == "success" {
-                            reportGenerated = true
-                        } else if let errorMsg = json["error"] as? String {
-                            reportError = errorMsg
-                        } else {
-                            reportError = "Unknown error occurred"
+                        reportGenerated = true
+                        
+                        // Create feedback data
+                        let feedbackData = ExerciseFeedbackData(
+                            generalFeeling: report["general_feeling"] as? String ?? "No feeling data provided",
+                            performanceQuality: report["performance_quality"] as? String ?? "No quality data provided",
+                            painReport: report["pain_report"] as? String ?? "No pain data provided",
+                            completed: report["completed"] as? Bool ?? true,
+                            setsCompleted: report["sets_completed"] as? Int ?? 0,
+                            repsCompleted: report["reps_completed"] as? Int ?? 0,
+                            dayStreak: report["day_streak"] as? Int ?? 1,
+                            motivationalMessage: report["motivational_message"] as? String ?? "Great job with your exercise today!"
+                        )
+                        
+                        // Save the feedback data
+                        if let encodedData = try? JSONEncoder().encode(feedbackData) {
+                            UserDefaults.standard.set(encodedData, forKey: "LastExerciseFeedback")
+                            
+                            // Post notification to update UI
+                            NotificationCenter.default.post(
+                                name: Notification.Name("ExerciseFeedbackAvailable"),
+                                object: nil,
+                                userInfo: ["feedback": feedbackData]
+                            )
                         }
+                        
+                    } else if let error = response["error"] as? String {
+                        reportError = "Server error: \(error)"
                     } else {
-                        reportError = "Invalid server response"
+                        reportError = "Unexpected server response"
                     }
-                } catch {
-                    reportError = "Failed to parse response: \(error.localizedDescription)"
+                    
+                case .failure(let error):
+                    reportError = "Failed to generate report: \(error.localizedDescription)"
                 }
             }
-        }.resume()
+        }
     }
 }
 
@@ -421,7 +448,7 @@ struct CongratulationsOverlay: View {
 
 // MARK: - Integration with Exercise Coach Agent
 extension VoiceManager {
-    // Function to receive exercise feedback from the coach agent
+    // Function to record exercise feedback from the coach agent
     func recordExerciseFeedback(feedbackData: [String: Any]) {
         print("🏋️‍♀️ Recording exercise feedback: \(feedbackData)")
         
@@ -448,23 +475,6 @@ extension VoiceManager {
             object: nil,
             userInfo: ["feedback": feedback]
         )
-    }
-}
-
-// Add this client tool to your exercise coach agent
-extension VoiceManager {
-    func registerAdditionalExerciseCoachTools(clientTools: inout ElevenLabsSDK.ClientTools) {
-        // Tool to record exercise feedback
-        clientTools.register("recordExerciseFeedback") { [weak self] parameters in
-            guard let self = self else { return "Manager not available" }
-            
-            print("🔵 recordExerciseFeedback tool called with parameters: \(parameters)")
-            
-            // Record the feedback
-            self.recordExerciseFeedback(feedbackData: parameters)
-            
-            return "Exercise feedback recorded successfully"
-        }
     }
 }
 

@@ -671,39 +671,30 @@ struct ExerciseDetailView: View {
     }
     
     private func stopExercise() {
-        // Set state to prevent multiple calls
-        if isStoppingExercise {
-            return
-        }
-        
+        print("🛑 Stopping exercise session")
         isStoppingExercise = true
-        print("🛑 Stopping exercise")
         
-        // Stop timer
+        // Stop the timer
         timer?.invalidate()
         timer = nil
         
-        let actualDuration = exercise.duration - remainingTime
-        exerciseDuration = actualDuration
+        // Calculate exercise duration
+        exerciseDuration = exercise.duration - remainingTime
         
-        // End the exercise coach session first
-        voiceManager.endElevenLabsSession { [self] in
-            // Then stop coordinating resources
-            resourceCoordinator.stopExerciseSession()
-            
-            // Clear coach messages
-            coachMessages = []
-            
-            // Update UI
-            DispatchQueue.main.async {
-                isExerciseActive = false
-                isStoppingExercise = false
-                
-                // Show exercise report - use a slight delay to ensure previous UI updates complete
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    showingExerciseReport = true
-                }
-            }
+        // Set current exercise ID in VoiceManager and end session
+        voiceManager.setCurrentExercise(id: exercise.firestoreId ?? exercise.id.uuidString)
+        voiceManager.endExerciseSession()
+        
+        // Clean up resources
+        resourceCoordinator.stopExerciseSession()
+        visionManager.stopProcessing()
+        cameraManager.resetSession()
+        
+        // Reset states
+        DispatchQueue.main.async {
+            self.isExerciseActive = false
+            self.isStoppingExercise = false
+            self.showingExerciseReport = true
         }
     }
     
