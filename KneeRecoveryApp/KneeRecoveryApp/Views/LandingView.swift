@@ -265,6 +265,10 @@ struct LandingView: View {
         // Check if we have cached exercises
         if let exercisesData = UserDefaults.standard.data(forKey: "PatientExercises"),
            let exercisesJson = try? JSONSerialization.jsonObject(with: exercisesData) as? [[String: Any]] {
+            
+            print("🔍 DEBUG: Loading cached exercises")
+            print("📦 DEBUG: Raw exercise data:", String(describing: exercisesJson))
+            
             // Convert JSON to Exercise objects
             exercises = exercisesJson.compactMap { exerciseDict -> Exercise? in
                 guard let name = exerciseDict["name"] as? String,
@@ -288,6 +292,13 @@ struct LandingView: View {
                     return nil
                 }
                 
+                // Get both exercise ID and patient exercise ID
+                let exerciseId = exerciseDict["id"] as? String
+                let patientExerciseId = exerciseDict["patient_exercise_id"] as? String
+                
+                print("🎯 DEBUG: Exercise ID:", exerciseId ?? "nil")
+                print("🎯 DEBUG: Patient Exercise ID:", patientExerciseId ?? "nil")
+                
                 return Exercise(
                     id: UUID(),
                     name: name,
@@ -295,7 +306,9 @@ struct LandingView: View {
                     imageURLString: exerciseDict["video_url"] as? String,
                     duration: 180, // Default duration
                     targetJoints: targetJoints.isEmpty ? [.leftKnee, .rightKnee] : targetJoints,
-                    instructions: instructions.isEmpty ? ["Follow the video instructions"] : instructions
+                    instructions: instructions.isEmpty ? ["Follow the video instructions"] : instructions,
+                    firestoreId: exerciseId,
+                    patientExerciseId: patientExerciseId
                 )
             }
             
@@ -388,6 +401,10 @@ struct LandingView: View {
                                 return nil
                             }
                             
+                            // Get both exercise ID and patient exercise ID
+                            let exerciseId = exerciseDict["id"] as? String
+                            let patientExerciseId = exerciseDict["patient_exercise_id"] as? String
+                            
                             return Exercise(
                                 id: UUID(),
                                 name: name,
@@ -395,7 +412,9 @@ struct LandingView: View {
                                 imageURLString: exerciseDict["video_url"] as? String,
                                 duration: 180,
                                 targetJoints: targetJoints.isEmpty ? [.leftKnee, .rightKnee] : targetJoints,
-                                instructions: instructions.isEmpty ? ["Follow the video instructions"] : instructions
+                                instructions: instructions.isEmpty ? ["Follow the video instructions"] : instructions,
+                                firestoreId: exerciseId,
+                                patientExerciseId: patientExerciseId
                             )
                         }
                         
@@ -452,13 +471,14 @@ extension Exercise {
     init(id: UUID = UUID(), name: String, description: String,
          imageURLString: String? = nil, duration: TimeInterval = 180,
          targetJoints: [Joint] = [], instructions: [String] = [],
-         firestoreId: String? = nil) {
+         firestoreId: String? = nil, patientExerciseId: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
         self.imageURL = imageURLString != nil ? URL(string: imageURLString!) : nil
         self.duration = duration
         self.firestoreId = firestoreId
+        self.patientExerciseId = patientExerciseId
         
         // Convert Joint to BodyJointType
         self.targetJoints = targetJoints.compactMap { joint in

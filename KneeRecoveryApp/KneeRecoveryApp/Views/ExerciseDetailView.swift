@@ -21,6 +21,7 @@ struct ExerciseDetailView: View {
     // Exercise report states
     @State private var showingExerciseReport = false
     @State private var exerciseDuration: TimeInterval = 0
+    @State private var isGeneratingReport = false  // New state for transition screen
     
     // API connection states
     @State private var isUploading = false
@@ -144,6 +145,36 @@ struct ExerciseDetailView: View {
                     .navigationBarItems(trailing: Button("Done") {
                         showingExerciseReport = false
                     })
+                }
+            }
+            .overlay {
+                if isGeneratingReport {
+                    Color.black.opacity(0.7)
+                        .edgesIgnoringSafeArea(.all)
+                        .overlay(
+                            VStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 100, height: 100)
+                                    .foregroundColor(.green)
+                                    .scaleEffect(1.5)
+                                    .opacity(0.9)
+                                
+                                Text("Great Job!")
+                                    .font(.title)
+                                    .foregroundColor(.white)
+                                    .padding()
+                                
+                                Text("Generating your exercise report...")
+                                    .font(.title3)
+                                    .foregroundColor(.white.opacity(0.8))
+                                
+                                ProgressView()
+                                    .tint(.white)
+                                    .padding(.top, 20)
+                            }
+                        )
                 }
             }
             .alert(isPresented: $showingErrorAlert) {
@@ -681,9 +712,18 @@ struct ExerciseDetailView: View {
         // Calculate exercise duration
         exerciseDuration = exercise.duration - remainingTime
         
-        // Set current exercise ID in VoiceManager and end session
-        voiceManager.setCurrentExercise(id: exercise.firestoreId ?? exercise.id.uuidString)
-        voiceManager.endExerciseSession()
+        // Set current exercise ID in VoiceManager
+        let exerciseId = exercise.firestoreId ?? exercise.id.uuidString
+        print("🎯 DEBUG: Exercise ID being set:", exerciseId)
+        print("🎯 DEBUG: Exercise firestoreId:", String(describing: exercise.firestoreId))
+        print("🎯 DEBUG: Exercise UUID:", exercise.id.uuidString)
+        voiceManager.setCurrentExercise(id: exerciseId)
+        
+        // Show transition screen
+        isGeneratingReport = true
+        
+        // Generate report and end session
+        endExerciseAndGenerateReport()
         
         // Clean up resources
         resourceCoordinator.stopExerciseSession()
@@ -694,8 +734,93 @@ struct ExerciseDetailView: View {
         DispatchQueue.main.async {
             self.isExerciseActive = false
             self.isStoppingExercise = false
-            self.showingExerciseReport = true
         }
+    }
+    
+    private func endExerciseAndGenerateReport() {
+        // Get conversation history from VoiceManager
+        let conversationHistory = voiceManager.getConversationHistory()
+        
+        // Get patient ID from UserDefaults
+        guard let patientId = UserDefaults.standard.string(forKey: "PatientID") else {
+            print("❌ No patient ID found in UserDefaults")
+            return
+        }
+        
+        // Get patient exercise ID
+        guard let patientExerciseId = exercise.patientExerciseId else {
+            print("❌ No patient exercise ID found for exercise")
+            return
+        }
+        
+        print("🏋️‍♀️ Generating report for patient \(patientId) and exercise \(patientExerciseId)")
+        
+        // Create request body
+        let requestBody: [String: Any] = [
+            "patient_id": patientId,
+            "exercise_id": patientExerciseId,
+            "conversation_history": conversationHistory
+        ]
+        
+        // Create request
+        let url = URL(string: "\(ServerAPI.baseURL)/api/generate_report")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            print("❌ Failed to encode request body: \(error)")
+            return
+        }
+        
+        // Make request
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Network error: \(error)")
+                return
+            }
+            
+            guard let data = data else {
+                print("❌ No data received")
+                return
+            }
+            
+            do {
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                print("📊 Report generation response: \(json ?? [:])")
+                
+                if let status = json?["status"] as? String, status == "success",
+                   let report = json?["report"] as? [String: Any] {
+                    
+                    // Create feedback data
+                    let feedbackData = [
+                        "general_feeling": report["general_feeling"] as? String ?? "No feeling data provided",
+                        "performance_quality": report["performance_quality"] as? String ?? "No quality data provided",
+                        "pain_report": report["pain_report"] as? String ?? "No pain data provided",
+                        "completed": report["completed"] as? Bool ?? true,
+                        "sets_completed": report["sets_completed"] as? Int ?? 0,
+                        "reps_completed": report["reps_completed"] as? Int ?? 0,
+                        "day_streak": report["day_streak"] as? Int ?? 1,
+                        "motivational_message": report["motivational_message"] as? String ?? "Great job with your exercise today!"
+                    ]
+                    
+                    // Save feedback data
+                    voiceManager.recordExerciseFeedback(feedbackData: feedbackData)
+                    
+                    // Add a delay before transitioning to the report view
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        isGeneratingReport = false
+                        showingExerciseReport = true
+                    }
+                } else {
+                    print("❌ Invalid report format in response")
+                }
+            } catch {
+                print("❌ Failed to parse response: \(error)")
+            }
+        }.resume()
     }
     
     private func timeString(from timeInterval: TimeInterval) -> String {
@@ -705,112 +830,96 @@ struct ExerciseDetailView: View {
     }
     
     private func saveModifications() {
-        // Show loading indicator
-        isUploading = true
-        uploadError = nil
-        
-        // Prepare video data if available
-        var videoData: Data? = nil
-        if let recordedVideoURL = self.recordedVideoURL {
-            do {
-                videoData = try Data(contentsOf: recordedVideoURL)
-            } catch {
-                self.uploadError = "Failed to read video data: \(error.localizedDescription)"
-                self.isUploading = false
-                return
-            }
+        // Get patient ID from UserDefaults
+        guard let patientId = UserDefaults.standard.string(forKey: "PatientID") else {
+            print("❌ No patient ID found in UserDefaults")
+            return
         }
         
-        // Construct the request body
+        // Get patient exercise ID
+        guard let patientExerciseId = exercise.patientExerciseId else {
+            print("❌ No patient exercise ID found for exercise")
+            return
+        }
+        
+        print("🏋️‍♀️ Saving modifications for patient \(patientId) and exercise \(patientExerciseId)")
+        
+        // Create request body
         var requestBody: [String: Any] = [
-            "pt_id": "pt-uuid", // Replace with actual PT ID or fetch from UserDefaults
-            "patient_id": UserDefaults.standard.string(forKey: "PatientID") ?? UUID().uuidString,
-            "patient_exercise_id": exercise.id.uuidString,
+            "patient_id": patientId,
+            "patient_exercise_id": patientExerciseId,
             "modifications": [
-                "frequency": self.modifiedFrequency,
-                "sets": self.modifiedSets,
-                "repetitions": self.modifiedReps,
-                "notes": self.modifiedNotes
+                "frequency": modifiedFrequency,
+                "sets": modifiedSets,
+                "repetitions": modifiedReps,
+                "notes": modifiedNotes
             ]
         ]
         
         // Add video data if available
-        if let videoData = videoData {
-            requestBody["custom_video"] = [
-                "base64_data": videoData.base64EncodedString(),
-                "content_type": "video/mp4",
-                "filename": "\(exercise.id)-custom.mp4"
-            ]
+        if let videoURL = recordedVideoURL {
+            do {
+                let videoData = try Data(contentsOf: videoURL)
+                let base64Video = videoData.base64EncodedString()
+                requestBody["custom_video"] = [
+                    "base64_data": base64Video,
+                    "content_type": "video/mp4",
+                    "filename": "\(patientExerciseId).mp4"
+                ]
+            } catch {
+                print("❌ Failed to read video data: \(error)")
+            }
         }
         
-        // Convert request body to JSON
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
-            self.uploadError = "Failed to create request data"
-            self.isUploading = false
-            return
-        }
-        
-        // Create the URL request
-        let urlString = "https://us-central1-pep-pro.cloudfunctions.net/modify_exercise"
-        guard let url = URL(string: urlString) else {
-            self.uploadError = "Invalid API URL"
-            self.isUploading = false
-            return
-        }
-        
+        // Create request
+        let url = URL(string: "\(ServerAPI.baseURL)/api/modify_exercise")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = jsonData
         
-        // Create the data task
-        let task = URLSession.shared.dataTask(with: request) { [self] data, response, error in
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            print("❌ Failed to encode request body: \(error)")
+            return
+        }
+        
+        // Make request
+        isUploading = true
+        URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 self.isUploading = false
                 
                 if let error = error {
-                    print("Network error: \(error.localizedDescription)")
-                    self.uploadError = "Network error: \(error.localizedDescription)"
-                    return
-                }
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    self.uploadError = "Invalid response from server"
+                    print("❌ Network error: \(error)")
+                    self.uploadError = "Failed to save modifications: \(error.localizedDescription)"
                     return
                 }
                 
                 guard let data = data else {
+                    print("❌ No data received")
                     self.uploadError = "No data received from server"
                     return
                 }
                 
-                if httpResponse.statusCode != 200 {
-                    self.uploadError = "Server error: HTTP \(httpResponse.statusCode)"
-                    if let errorMessage = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let errorText = errorMessage["error"] as? String {
-                        self.uploadError = errorText
-                    }
-                    return
-                }
-                
-                // Parse the response
                 do {
-                    let responseDict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                    print("📊 Modification response: \(json ?? [:])")
                     
-                    if let status = responseDict?["status"] as? String, status == "success" {
-                        // Handle success
-                        self.uploadError = nil
+                    if let status = json?["status"] as? String, status == "success" {
+                        // Clear recorded video URL after successful upload
+                        self.recordedVideoURL = nil
+                        // Dismiss the sheet
+                        self.showingModifySheet = false
                     } else {
-                        self.uploadError = responseDict?["error"] as? String ?? "Unknown error"
+                        self.uploadError = "Failed to save modifications: Invalid response from server"
                     }
                 } catch {
-                    self.uploadError = "Failed to parse response: \(error.localizedDescription)"
+                    print("❌ Failed to parse response: \(error)")
+                    self.uploadError = "Failed to parse server response"
                 }
             }
-        }
-        
-        // Start the request
-        task.resume()
+        }.resume()
     }
 }
 

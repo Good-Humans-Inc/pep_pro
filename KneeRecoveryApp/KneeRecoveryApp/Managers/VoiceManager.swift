@@ -1276,8 +1276,8 @@ class VoiceManager: NSObject, ObservableObject {
     
     // Method to set current exercise
     func setCurrentExercise(id: String) {
+        print("🎯 DEBUG: Setting current exercise ID:", id)
         currentExerciseId = id
-        print("🎯 Set current exercise ID: \(id)")
     }
 }
 

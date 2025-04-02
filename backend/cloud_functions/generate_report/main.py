@@ -181,7 +181,7 @@ def generate_report(request):
     Request format:
     {
         "patient_id": "uuid-of-patient",
-        "exercise_id": "uuid-of-exercise",
+        "patient_exercise_id": "uuid-of-patient-exercise",
         "conversation_history": [
             {"role": "user", "content": "message"},
             {"role": "ai", "content": "message"}
@@ -203,22 +203,37 @@ def generate_report(request):
     try:
         request_json = request.get_json(silent=True)
         
-        if not request_json or 'patient_id' not in request_json or 'exercise_id' not in request_json:
+        if not request_json or 'patient_id' not in request_json or 'patient_exercise_id' not in request_json:
             return (json.dumps({'error': 'Invalid request - missing required parameters'}, cls=DateTimeEncoder), 400, headers)
         
         patient_id = request_json['patient_id']
-        exercise_id = request_json['exercise_id']
+        patient_exercise_id = request_json['patient_exercise_id']
         conversation_history = request_json.get('conversation_history', [])
         
-        logger.info(f"Processing report generation for patient_id: {patient_id}, exercise_id: {exercise_id}")
+        logger.info(f"Processing report generation for patient_id: {patient_id}, patient_exercise_id: {patient_exercise_id}")
         
-        # Get exercise details from Firestore
+        # Get patient exercise details from Firestore
+        patient_exercise_ref = db.collection('patient_exercises').document(patient_exercise_id)
+        patient_exercise_doc = patient_exercise_ref.get()
+        
+        if not patient_exercise_doc.exists:
+            logger.warning(f"Patient exercise not found: {patient_exercise_id}")
+            return (json.dumps({'error': 'Patient exercise not found'}, cls=DateTimeEncoder), 404, headers)
+            
+        patient_exercise_data = patient_exercise_doc.to_dict()
+        
+        # Get the base exercise details
+        exercise_id = patient_exercise_data.get('exercise_id')
+        if not exercise_id:
+            logger.warning(f"No exercise_id found in patient exercise: {patient_exercise_id}")
+            return (json.dumps({'error': 'No exercise_id found in patient exercise'}, cls=DateTimeEncoder), 404, headers)
+            
         exercise_ref = db.collection('exercises').document(exercise_id)
         exercise_doc = exercise_ref.get()
         
         if not exercise_doc.exists:
-            logger.warning(f"Exercise not found: {exercise_id}")
-            return (json.dumps({'error': 'Exercise not found'}, cls=DateTimeEncoder), 404, headers)
+            logger.warning(f"Base exercise not found: {exercise_id}")
+            return (json.dumps({'error': 'Base exercise not found'}, cls=DateTimeEncoder), 404, headers)
             
         exercise_data = exercise_doc.to_dict()
         
@@ -248,12 +263,17 @@ def generate_report(request):
         # Create the report data without the timestamp first
         report_data_to_store = {
             'patient_id': patient_id,
+            'patient_exercise_id': patient_exercise_id,
             'exercise_id': exercise_id,
             'exercise_name': exercise_data.get('name', 'Unknown'),
             'exercise_description': exercise_data.get('description', ''),
             'target_joints': exercise_data.get('target_joints', []),
             'instructions': exercise_data.get('instructions', []),
-            'duration_minutes': metrics['duration_minutes']
+            'duration_minutes': metrics['duration_minutes'],
+            'frequency': patient_exercise_data.get('frequency', 'daily'),
+            'sets': patient_exercise_data.get('sets', 3),
+            'repetitions': patient_exercise_data.get('repetitions', 10),
+            'notes': patient_exercise_data.get('notes', '')
         }
         
         # Add the report data from OpenAI

@@ -287,9 +287,11 @@ struct GeneratePTReportButton: View {
     let patientId: String
     let exerciseId: String
     @State private var showingPTReportAlert = false
-    @State private var isGenerating = false
-    @State private var reportGenerated = false
-    @State private var reportError: String? = nil
+    @State private var isGeneratingPDF = false
+    @State private var pdfGenerated = false
+    @State private var pdfError: String? = nil
+    @State private var showingShareSheet = false
+    @State private var pdfURL: URL? = nil
     @EnvironmentObject private var voiceManager: VoiceManager
     
     var body: some View {
@@ -298,8 +300,8 @@ struct GeneratePTReportButton: View {
                 showingPTReportAlert = true
             }) {
                 HStack {
-                    Image(systemName: "doc.text.magnifyingglass")
-                    Text("Generate PT Visit Report")
+                    Image(systemName: "doc.text.fill")
+                    Text("Export PT Report as PDF")
                 }
                 .frame(maxWidth: .infinity)
                 .padding()
@@ -307,21 +309,21 @@ struct GeneratePTReportButton: View {
                 .cornerRadius(10)
                 .foregroundColor(.blue)
             }
-            .disabled(isGenerating)
+            .disabled(isGeneratingPDF)
             
-            if isGenerating {
-                ProgressView("Generating report...")
+            if isGeneratingPDF {
+                ProgressView("Generating PDF...")
                     .padding(.top, 5)
             }
             
-            if reportGenerated {
-                Text("Report generated successfully!")
+            if pdfGenerated {
+                Text("PDF generated successfully!")
                     .foregroundColor(.green)
                     .font(.caption)
                     .padding(.top, 5)
             }
             
-            if let error = reportError {
+            if let error = pdfError {
                 Text(error)
                     .foregroundColor(.red)
                     .font(.caption)
@@ -331,83 +333,151 @@ struct GeneratePTReportButton: View {
         }
         .alert(isPresented: $showingPTReportAlert) {
             Alert(
-                title: Text("Generate PT Report"),
-                message: Text("This will generate a comprehensive report based on your exercise session. Would you like to proceed?"),
-                primaryButton: .default(Text("Generate")) {
-                    generatePTReport()
+                title: Text("Export PT Report"),
+                message: Text("This will generate a PDF report that you can share with your physical therapist. Would you like to proceed?"),
+                primaryButton: .default(Text("Generate PDF")) {
+                    generatePTReportPDF()
                 },
                 secondaryButton: .cancel()
             )
         }
-    }
-    
-    private func generatePTReport() {
-        isGenerating = true
-        reportGenerated = false
-        reportError = nil
-        
-        // Get conversation history
-        let conversationHistory = voiceManager.getConversationHistory()
-        
-        if conversationHistory.isEmpty {
-            reportError = "No exercise session data available.\nPlease complete an exercise session first."
-            isGenerating = false
-            return
-        }
-        
-        // Call the server API
-        ServerAPI().generatePTReport(
-            patientId: patientId,
-            exerciseId: exerciseId,
-            conversationHistory: conversationHistory
-        ) { result in
-            DispatchQueue.main.async {
-                isGenerating = false
-                
-                switch result {
-                case .success(let response):
-                    if let status = response["status"] as? String,
-                       status == "success",
-                       let report = response["report"] as? [String: Any] {
-                        
-                        reportGenerated = true
-                        
-                        // Create feedback data
-                        let feedbackData = ExerciseFeedbackData(
-                            generalFeeling: report["general_feeling"] as? String ?? "No feeling data provided",
-                            performanceQuality: report["performance_quality"] as? String ?? "No quality data provided",
-                            painReport: report["pain_report"] as? String ?? "No pain data provided",
-                            completed: report["completed"] as? Bool ?? true,
-                            setsCompleted: report["sets_completed"] as? Int ?? 0,
-                            repsCompleted: report["reps_completed"] as? Int ?? 0,
-                            dayStreak: report["day_streak"] as? Int ?? 1,
-                            motivationalMessage: report["motivational_message"] as? String ?? "Great job with your exercise today!"
-                        )
-                        
-                        // Save the feedback data
-                        if let encodedData = try? JSONEncoder().encode(feedbackData) {
-                            UserDefaults.standard.set(encodedData, forKey: "LastExerciseFeedback")
-                            
-                            // Post notification to update UI
-                            NotificationCenter.default.post(
-                                name: Notification.Name("ExerciseFeedbackAvailable"),
-                                object: nil,
-                                userInfo: ["feedback": feedbackData]
-                            )
-                        }
-                        
-                    } else if let error = response["error"] as? String {
-                        reportError = "Server error: \(error)"
-                    } else {
-                        reportError = "Unexpected server response"
-                    }
-                    
-                case .failure(let error):
-                    reportError = "Failed to generate report: \(error.localizedDescription)"
-                }
+        .sheet(isPresented: $showingShareSheet) {
+            if let url = pdfURL {
+                ShareSheet(activityItems: [url])
             }
         }
     }
+    
+    private func generatePTReportPDF() {
+        isGeneratingPDF = true
+        pdfGenerated = false
+        pdfError = nil
+        
+        // Get the current feedback data
+        guard let storedFeedback = UserDefaults.standard.data(forKey: "LastExerciseFeedback"),
+              let feedbackData = try? JSONDecoder().decode(ExerciseFeedbackData.self, from: storedFeedback) else {
+            pdfError = "No exercise feedback data available"
+            isGeneratingPDF = false
+            return
+        }
+        
+        // Create PDF content
+        let pdfContent = createPDFContent(feedbackData: feedbackData)
+        
+        // Generate PDF
+        let pdfData = createPDF(from: pdfContent)
+        
+        // Save PDF to documents directory
+        do {
+            let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let fileName = "PT_Report_\(Date().timeIntervalSince1970).pdf"
+            let fileURL = documentsDirectory.appendingPathComponent(fileName)
+            
+            try pdfData.write(to: fileURL)
+            
+            // Update state and show share sheet
+            DispatchQueue.main.async {
+                self.pdfURL = fileURL
+                self.isGeneratingPDF = false
+                self.pdfGenerated = true
+                self.showingShareSheet = true
+            }
+        } catch {
+            DispatchQueue.main.async {
+                self.pdfError = "Failed to save PDF: \(error.localizedDescription)"
+                self.isGeneratingPDF = false
+            }
+        }
+    }
+    
+    private func createPDFContent(feedbackData: ExerciseFeedbackData) -> NSAttributedString {
+        let content = NSMutableAttributedString()
+        
+        // Title
+        let titleAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.boldSystemFont(ofSize: 24),
+            .foregroundColor: UIColor.black
+        ]
+        content.append(NSAttributedString(string: "Physical Therapy Exercise Report\n\n", attributes: titleAttributes))
+        
+        // Date
+        let dateAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 14),
+            .foregroundColor: UIColor.gray
+        ]
+        content.append(NSAttributedString(string: "Date: \(Date().formatted())\n\n", attributes: dateAttributes))
+        
+        // Patient ID
+        content.append(NSAttributedString(string: "Patient ID: \(patientId)\n", attributes: dateAttributes))
+        content.append(NSAttributedString(string: "Exercise ID: \(exerciseId)\n\n", attributes: dateAttributes))
+        
+        // General Feeling
+        let sectionAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.boldSystemFont(ofSize: 18),
+            .foregroundColor: UIColor.black
+        ]
+        content.append(NSAttributedString(string: "General Feeling\n", attributes: sectionAttributes))
+        content.append(NSAttributedString(string: "\(feedbackData.generalFeeling)\n\n", attributes: dateAttributes))
+        
+        // Performance Quality
+        content.append(NSAttributedString(string: "Performance Quality\n", attributes: sectionAttributes))
+        content.append(NSAttributedString(string: "\(feedbackData.performanceQuality)\n\n", attributes: dateAttributes))
+        
+        // Pain Report
+        content.append(NSAttributedString(string: "Pain Report\n", attributes: sectionAttributes))
+        content.append(NSAttributedString(string: "\(feedbackData.painReport)\n\n", attributes: dateAttributes))
+        
+        // Exercise Statistics
+        content.append(NSAttributedString(string: "Exercise Statistics\n", attributes: sectionAttributes))
+        content.append(NSAttributedString(string: "Sets Completed: \(feedbackData.setsCompleted)\n", attributes: dateAttributes))
+        content.append(NSAttributedString(string: "Reps Completed: \(feedbackData.repsCompleted)\n", attributes: dateAttributes))
+        content.append(NSAttributedString(string: "Day Streak: \(feedbackData.dayStreak)\n\n", attributes: dateAttributes))
+        
+        // Motivational Message
+        content.append(NSAttributedString(string: "Motivational Message\n", attributes: sectionAttributes))
+        content.append(NSAttributedString(string: "\(feedbackData.motivationalMessage)\n", attributes: dateAttributes))
+        
+        return content
+    }
+    
+    private func createPDF(from content: NSAttributedString) -> Data {
+        let pdfMetaData = [
+            kCGPDFContextCreator: "PEP Pro App",
+            kCGPDFContextAuthor: "PEP Pro System"
+        ]
+        let format = UIGraphicsPDFRendererFormat()
+        format.documentInfo = pdfMetaData as [String: Any]
+        
+        let pageWidth: CGFloat = 8.5 * 72.0
+        let pageHeight: CGFloat = 11 * 72.0
+        let pageRect = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
+        
+        let renderer = UIGraphicsPDFRenderer(bounds: pageRect, format: format)
+        
+        let data = renderer.pdfData { context in
+            context.beginPage()
+            
+            // Draw content
+            content.draw(in: pageRect.insetBy(dx: 50, dy: 50))
+        }
+        
+        return data
+    }
+}
+
+// ShareSheet view for sharing the PDF
+struct ShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(
+            activityItems: activityItems,
+            applicationActivities: nil
+        )
+        return controller
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 struct CongratulationsOverlay: View {

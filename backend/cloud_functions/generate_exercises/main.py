@@ -690,6 +690,9 @@ def save_exercises(exercises, patient_id):
         }
         
         db.collection('patient_exercises').document(patient_exercise_id).set(patient_exercise)
+        
+        # Add patient_exercise_id to exercise_data before saving
+        exercise_data['patient_exercise_id'] = patient_exercise_id
         saved_exercises.append(exercise_data)
     
     return saved_exercises

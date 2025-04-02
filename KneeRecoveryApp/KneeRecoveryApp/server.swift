@@ -1,11 +1,14 @@
 import Foundation
 
 class ServerAPI {
-    private let baseURL = "https://us-central1-pep-pro.cloudfunctions.net"
-    private var patientID: String?
+    static let baseURL = "https://us-central1-pep-pro.cloudfunctions.net"
+    
+    var patientID: String? {
+        return UserDefaults.standard.string(forKey: "PatientID")
+    }
     
     func processVoiceInput(audioData: Data, completion: @escaping (Result<[Exercise], Error>) -> Void) {
-        let url = URL(string: "\(baseURL)/api/process_audio")!
+        let url = URL(string: "\(ServerAPI.baseURL)/api/process_audio")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         
@@ -46,7 +49,7 @@ class ServerAPI {
                 
                 // Save patient ID for future requests
                 if let patientID = json["patient_id"] as? String {
-                    self.patientID = patientID
+                    UserDefaults.standard.set(patientID, forKey: "PatientID")
                 }
                 
                 // Parse exercises
@@ -96,7 +99,7 @@ class ServerAPI {
     func logExerciseSession(exerciseID: UUID, duration: TimeInterval, completed: Bool, notes: String = "") {
         guard let patientID = patientID else { return }
         
-        let url = URL(string: "\(baseURL)/api/log_exercise")!
+        let url = URL(string: "\(ServerAPI.baseURL)/api/log_exercise")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -117,18 +120,23 @@ class ServerAPI {
     }
     
     func generatePTReport(patientId: String, exerciseId: String, conversationHistory: [[String: Any]], completion: @escaping (Result<[String: Any], Error>) -> Void) {
-        let url = URL(string: "\(baseURL)/generate_pt_report")!
+        let url = URL(string: "\(ServerAPI.baseURL)/api/generate_report")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let body: [String: Any] = [
+        let requestBody: [String: Any] = [
             "patient_id": patientId,
             "exercise_id": exerciseId,
             "conversation_history": conversationHistory
         ]
         
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            completion(.failure(error))
+            return
+        }
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -137,7 +145,7 @@ class ServerAPI {
             }
             
             guard let data = data else {
-                completion(.failure(NSError(domain: "ServerAPI", code: 0, userInfo: [NSLocalizedDescriptionKey: "No data received"])))
+                completion(.failure(NSError(domain: "ServerAPI", code: 1, userInfo: [NSLocalizedDescriptionKey: "No data received"])))
                 return
             }
             
@@ -145,7 +153,85 @@ class ServerAPI {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     completion(.success(json))
                 } else {
-                    completion(.failure(NSError(domain: "ServerAPI", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid JSON response"])))
+                    completion(.failure(NSError(domain: "ServerAPI", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])))
+                }
+            } catch {
+                completion(.failure(error))
+            }
+        }.resume()
+    }
+    
+    func fetchExercisesFromAPI(completion: @escaping (Result<[Exercise], Error>) -> Void) {
+        guard let patientId = patientID else {
+            completion(.failure(NSError(domain: "ServerAPI", code: 3, userInfo: [NSLocalizedDescriptionKey: "No patient ID found"])))
+            return
+        }
+        
+        let url = URL(string: "\(ServerAPI.baseURL)/api/generate_exercises")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let requestBody = ["patient_id": patientId]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: requestBody)
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            guard let data = data else {
+                completion(.failure(NSError(domain: "ServerAPI", code: 1, userInfo: [NSLocalizedDescriptionKey: "No data received"])))
+                return
+            }
+            
+            do {
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                
+                if let exercisesJson = json?["exercises"] as? [[String: Any]] {
+                    let exercises = exercisesJson.compactMap { exerciseDict -> Exercise? in
+                        guard let name = exerciseDict["name"] as? String,
+                              let description = exerciseDict["description"] as? String else {
+                            return nil
+                        }
+                        
+                        // Parse target joints
+                        let jointStrings = exerciseDict["target_joints"] as? [String] ?? []
+                        let targetJoints = jointStrings.compactMap { jointString -> Joint? in
+                            if jointString.contains("knee") {
+                                return jointString.contains("left") ? .leftKnee : .rightKnee
+                            } else if jointString.contains("ankle") {
+                                return jointString.contains("left") ? .leftAnkle : .rightAnkle
+                            } else if jointString.contains("hip") {
+                                return jointString.contains("left") ? .leftHip : .rightHip
+                            }
+                            return nil
+                        }
+                        
+                        // Parse instructions
+                        let instructions = exerciseDict["instructions"] as? [String] ?? []
+                        
+                        // Get both exercise ID and patient exercise ID
+                        let exerciseId = exerciseDict["id"] as? String
+                        let patientExerciseId = exerciseDict["patient_exercise_id"] as? String
+                        
+                        return Exercise(
+                            id: UUID(),
+                            name: name,
+                            description: description,
+                            imageURLString: exerciseDict["video_url"] as? String,
+                            duration: 180,
+                            targetJoints: targetJoints.isEmpty ? [.leftKnee, .rightKnee] : targetJoints,
+                            instructions: instructions.isEmpty ? ["Follow the video instructions"] : instructions,
+                            firestoreId: exerciseId,
+                            patientExerciseId: patientExerciseId
+                        )
+                    }
+                    
+                    completion(.success(exercises))
+                } else {
+                    completion(.failure(NSError(domain: "ServerAPI", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to parse exercises"])))
                 }
             } catch {
                 completion(.failure(error))
