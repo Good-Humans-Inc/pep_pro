@@ -699,6 +699,12 @@ class VoiceManager: NSObject, ObservableObject {
     
     // Generate exercises for the patient
     func generateExercises(patientId: String) {
+        // Check if we're already generating exercises
+        guard !isGeneratingExercises else {
+            print("⚠️ Exercise generation already in progress, skipping duplicate request")
+            return
+        }
+        
         DispatchQueue.main.async {
             self.isGeneratingExercises = true
         }

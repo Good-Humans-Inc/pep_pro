@@ -179,6 +179,7 @@ struct LandingView: View {
     @EnvironmentObject var speechRecognitionManager: SpeechRecognitionManager
     @EnvironmentObject var cameraManager: CameraManager
     @EnvironmentObject var visionManager: VisionManager
+    @EnvironmentObject var appState: AppState
     
     var body: some View {
         NavigationView {
@@ -233,6 +234,7 @@ struct LandingView: View {
             }
             .sheet(isPresented: $showingAddCustomExercise) {
                 AddCustomExerciseView()
+                    .environmentObject(appState)
             }
             .onAppear {
                 // Load exercises from the API or local storage

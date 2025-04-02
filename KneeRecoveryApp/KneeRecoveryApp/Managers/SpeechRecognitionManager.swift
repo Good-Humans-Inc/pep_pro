@@ -5,7 +5,7 @@ import Combine
 
 class SpeechRecognitionManager: NSObject, ObservableObject {
     // Reference to AppState
-    private let appState: AppState
+    let appState: AppState
     
     // Published properties for UI updates
     @Published var isListening = false
@@ -126,20 +126,14 @@ class SpeechRecognitionManager: NSObject, ObservableObject {
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         print("Recording format: \(recordingFormat)")
         
+        // Remove any existing tap before installing a new one
+        if inputNode.numberOfInputs > 0 {
+            inputNode.removeTap(onBus: 0)
+        }
         
-        // *******DEBUG Crashing
-        // CRITICAL: Make a copy of the format to avoid reference issues
-        let processFormat = AVAudioFormat(
-            commonFormat: recordingFormat.commonFormat,
-            sampleRate: recordingFormat.sampleRate,
-            channels: recordingFormat.channelCount,
-            interleaved: recordingFormat.isInterleaved
-        )
-        
-        // Install tap with the copied format
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: processFormat) { buffer, _ in
+        // Install tap with the format
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { buffer, _ in
             self.recognitionRequest?.append(buffer)
-            // Rest of your code
         }
         
         // Create recognition task with detailed logging
@@ -193,46 +187,6 @@ class SpeechRecognitionManager: NSObject, ObservableObject {
             }
         }
         
-        // Configure the microphone input with a relatively large buffer size for stability
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { buffer, _ in
-            // Append the audio buffer to the recognition request
-            self.recognitionRequest?.append(buffer)
-            
-            // Log audio levels occasionally for debugging
-            if arc4random_uniform(100) < 10 { // 10% chance to log
-                // Simple calculation of audio level
-                if let channelData = buffer.floatChannelData?[0] {
-                    var sum: Float = 0.0
-                    let frameLength = Int(buffer.frameLength)
-                    
-                    for i in 0..<frameLength {
-                        let sample = channelData[i]
-                        sum += sample * sample
-                    }
-                    
-                    if frameLength > 0 {
-                        let rms = sqrt(sum / Float(frameLength))
-                        let db = 20 * log10(max(rms, 0.0000001))
-                        print("AUDIO LEVEL: \(db) dB")
-                    }
-                }
-            }
-        }
-        
-        // *****DEBUG Crashing
-        // Add this before audioEngine.prepare()
-        do {
-            // Reset the audio session to make sure it's in a clean state
-            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-            try audioSession.setCategory(.playAndRecord,
-                                      mode: .spokenAudio,
-                                      options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        } catch {
-            print("FINAL AUDIO SESSION CONFIG ERROR: \(error)")
-            speechError = "Could not configure audio session: \(error.localizedDescription)"
-            return
-        }
         // Start the audio engine
         audioEngine.prepare()
         

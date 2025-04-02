@@ -8,7 +8,7 @@ struct ContentView: View {
     // Initialize other managers lazily using AppState
     @StateObject private var voiceManager: VoiceManager
     @StateObject private var cameraManager: CameraManager
-    @StateObject private var speechRecognitionManager: SpeechRecognitionManager
+    @EnvironmentObject var speechRecognitionManager: SpeechRecognitionManager
     @StateObject private var resourceCoordinator: ResourceCoordinator
     @StateObject private var visionManager: VisionManager
     
@@ -20,7 +20,6 @@ struct ContentView: View {
         // Initialize all managers with the same AppState instance
         _voiceManager = StateObject(wrappedValue: VoiceManager(appState: state))
         _cameraManager = StateObject(wrappedValue: CameraManager(appState: state))
-        _speechRecognitionManager = StateObject(wrappedValue: SpeechRecognitionManager(appState: state))
         _resourceCoordinator = StateObject(wrappedValue: ResourceCoordinator(appState: state))
         _visionManager = StateObject(wrappedValue: VisionManager(appState: state))
     }
