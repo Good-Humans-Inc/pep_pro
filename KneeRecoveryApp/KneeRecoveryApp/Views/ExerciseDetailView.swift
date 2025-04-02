@@ -722,18 +722,21 @@ struct ExerciseDetailView: View {
         // Show transition screen
         isGeneratingReport = true
         
-        // Generate report and end session
-        endExerciseAndGenerateReport()
-        
-        // Clean up resources
-        resourceCoordinator.stopExerciseSession()
-        visionManager.stopProcessing()
-        cameraManager.resetSession()
-        
-        // Reset states
-        DispatchQueue.main.async {
-            self.isExerciseActive = false
-            self.isStoppingExercise = false
+        // First end the voice session with completion handler
+        voiceManager.endElevenLabsSession { [self] in
+            // After voice session is ended, generate report
+            endExerciseAndGenerateReport()
+            
+            // Clean up resources
+            resourceCoordinator.stopExerciseSession()
+            visionManager.stopProcessing()
+            cameraManager.resetSession()
+            
+            // Reset states
+            DispatchQueue.main.async {
+                self.isExerciseActive = false
+                self.isStoppingExercise = false
+            }
         }
     }
     
@@ -758,7 +761,7 @@ struct ExerciseDetailView: View {
         // Create request body
         let requestBody: [String: Any] = [
             "patient_id": patientId,
-            "exercise_id": patientExerciseId,
+            "patient_exercise_id": patientExerciseId,
             "conversation_history": conversationHistory
         ]
         
@@ -770,6 +773,7 @@ struct ExerciseDetailView: View {
         
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+            print("📤 Report request body: \(String(data: request.httpBody!, encoding: .utf8) ?? "unable to decode")")
         } catch {
             print("❌ Failed to encode request body: \(error)")
             return
@@ -785,6 +789,11 @@ struct ExerciseDetailView: View {
             guard let data = data else {
                 print("❌ No data received")
                 return
+            }
+            
+            // Log raw response for debugging
+            if let rawResponse = String(data: data, encoding: .utf8) {
+                print("📥 Raw report response: \(rawResponse)")
             }
             
             do {
@@ -819,6 +828,7 @@ struct ExerciseDetailView: View {
                 }
             } catch {
                 print("❌ Failed to parse response: \(error)")
+                print("❌ Response data: \(String(data: data, encoding: .utf8) ?? "unable to decode")")
             }
         }.resume()
     }
