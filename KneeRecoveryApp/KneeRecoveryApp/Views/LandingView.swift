@@ -171,6 +171,7 @@ struct LandingView: View {
     @State private var exercises = [Exercise]()
     @State private var showingPermissionsAlert = false
     @State private var isLoadingExercises = false
+    @State private var showingAddCustomExercise = false
     
     // Environment objects
     @EnvironmentObject var resourceCoordinator: ResourceCoordinator
@@ -181,41 +182,91 @@ struct LandingView: View {
     
     var body: some View {
         NavigationView {
-            contentView
-                .navigationTitle("Knee Recovery Exercises")
-                .navigationBarItems(
-                    leading: ResetOnboardingButton(),
-                    trailing: Button(action: {
-                        checkPermissions()
-                    }) {
-                        Image(systemName: "info.circle")
+            ZStack {
+                // Main content
+                ScrollView {
+                    VStack(spacing: 20) {
+                        if isLoadingExercises {
+                            LoadingExercisesView()
+                        } else if !exercises.isEmpty {
+                            exercisesSection
+                        } else {
+                            EmptyExercisesView()
+                        }
                     }
+                    .padding()
+                }
+                
+                // Add custom exercise button
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            showingAddCustomExercise = true
+                        }) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 50))
+                                .foregroundColor(.blue)
+                                .shadow(radius: 4)
+                        }
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 20)
+                    }
+                }
+            }
+            .navigationTitle("My Exercises")
+            .navigationBarItems(
+                leading: ResetOnboardingButton()
+            )
+            .alert(isPresented: $showingPermissionsAlert) {
+                Alert(
+                    title: Text("Permissions Required"),
+                    message: Text("This app requires camera and microphone permissions for exercises."),
+                    primaryButton: .default(Text("Settings"), action: {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    }),
+                    secondaryButton: .cancel()
                 )
-                .alert(isPresented: $showingPermissionsAlert) {
-                    Alert(
-                        title: Text("Permissions Required"),
-                        message: Text("This app requires camera and microphone permissions for exercises."),
-                        primaryButton: .default(Text("Settings"), action: {
-                            if let url = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(url)
-                            }
-                        }),
-                        secondaryButton: .cancel()
-                    )
+            }
+            .sheet(isPresented: $showingAddCustomExercise) {
+                AddCustomExerciseView()
+            }
+            .onAppear {
+                // Load exercises from the API or local storage
+                loadExercises()
+                
+                // End any ongoing voice session
+                if voiceManager.isSessionActive {
+                    print("⚠️ Unexpected active voice session in LandingView - ending it")
+                    voiceManager.endElevenLabsSession()
                 }
-                .onAppear {
-                    // Load exercises from the API or local storage
-                    loadExercises()
-                    
-                    // End any ongoing voice session
-                    if voiceManager.isSessionActive {
-                        print("⚠️ Unexpected active voice session in LandingView - ending it")
-                        voiceManager.endElevenLabsSession()
+                
+                // Optional: Check if permissions are already granted
+                resourceCoordinator.checkInitialPermissions()
+                
+                // Set up notification observer for exercise updates
+                NotificationCenter.default.addObserver(
+                    forName: Notification.Name("ExercisesUpdated"),
+                    object: nil,
+                    queue: .main
+                ) { _ in
+                    // Refresh exercises
+                    if let patientId = UserDefaults.standard.string(forKey: "PatientID") {
+                        fetchExercisesFromAPI(patientId: patientId)
                     }
-                    
-                    // Optional: Check if permissions are already granted
-                    resourceCoordinator.checkInitialPermissions()
                 }
+            }
+            .onDisappear {
+                // Remove notification observer
+                NotificationCenter.default.removeObserver(
+                    self,
+                    name: Notification.Name("ExercisesUpdated"),
+                    object: nil
+                )
+            }
         }
         // Apply the custom modifier to handle add exercise sheet
         .withAddExerciseSheet(exercises: $exercises)

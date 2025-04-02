@@ -53,11 +53,6 @@ struct ExerciseDetailView: View {
     var body: some View {
         mainContentView
             .navigationBarTitle("", displayMode: .inline)
-            .navigationBarItems(trailing: isExerciseActive ? nil : Button(action: {
-                // Info button action
-            }) {
-                Image(systemName: "info.circle")
-            })
             .onAppear {
                 print("📱 ExerciseDetailView appeared")
                 
