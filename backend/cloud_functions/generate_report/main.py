@@ -21,6 +21,9 @@ class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
             return obj.isoformat()
+        # Handle Firestore's DatetimeWithNanoseconds
+        if hasattr(obj, 'isoformat'):
+            return obj.isoformat()
         return super(DateTimeEncoder, self).default(obj)
 
 # Secret Manager setup
