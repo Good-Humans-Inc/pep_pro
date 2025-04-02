@@ -1,59 +1,88 @@
 import functions_framework
-import firebase_admin
-from firebase_admin import credentials, firestore
-import openai
 import json
+import uuid
+import os
+import requests
+import logging
 from datetime import datetime
+from google.cloud import firestore
+from google.cloud import secretmanager
 
-# Initialize Firebase Admin
-cred = credentials.Certificate('service-account.json')
-firebase_admin.initialize_app(cred)
-db = firestore.client()
+# Set up logging
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger('generate_pt_report')
 
-@functions_framework.http
-def generate_pt_report(request):
-    # Enable CORS
-    if request.method == 'OPTIONS':
-        headers = {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST',
-            'Access-Control-Allow-Headers': 'Content-Type'
-        }
-        return ('', 204, headers)
-    
-    headers = {'Access-Control-Allow-Origin': '*'}
-    
+# Custom JSON encoder to handle datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super(DateTimeEncoder, self).default(obj)
+
+# Secret Manager setup
+def access_secret_version(secret_id, version_id="latest"):
+    """
+    Access the secret from GCP Secret Manager
+    """
     try:
-        # Get request data
-        request_json = request.get_json()
-        patient_id = request_json.get('patient_id')
-        exercise_id = request_json.get('exercise_id')
-        conversation_history = request_json.get('conversation_history', [])
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{os.environ['PROJECT_ID']}/secrets/{secret_id}/versions/{version_id}"
+        response = client.access_secret_version(request={"name": name})
+        # Strip whitespace and newlines to avoid issues with API keys
+        return response.payload.data.decode("UTF-8").strip()
+    except Exception as e:
+        logger.error(f"Error accessing secret '{secret_id}': {str(e)}")
+        raise
+
+# Initialize Firestore DB
+db = firestore.Client()
+
+def extract_exercise_metrics(conversation_history):
+    """Extract exercise metrics from conversation history."""
+    metrics = {
+        'sets_completed': 0,
+        'reps_completed': 0,
+        'duration_minutes': 0
+    }
+    
+    for message in conversation_history:
+        content = message.get('content', '').lower()
         
-        if not patient_id or not exercise_id:
-            return (json.dumps({'error': 'Missing required parameters'}), 400, headers)
+        # Look for sets completed
+        if 'set' in content or 'sets' in content:
+            set_matches = re.findall(r'(\d+)\s*sets?', content)
+            if set_matches:
+                metrics['sets_completed'] = max(metrics['sets_completed'], int(set_matches[-1]))
         
-        # Get exercise details from Firestore
-        exercise_ref = db.collection('exercises').document(exercise_id)
-        exercise_doc = exercise_ref.get()
+        # Look for reps completed
+        if 'rep' in content or 'reps' in content:
+            rep_matches = re.findall(r'(\d+)\s*reps?', content)
+            if rep_matches:
+                metrics['reps_completed'] = max(metrics['reps_completed'], int(rep_matches[-1]))
         
-        if not exercise_doc.exists:
-            return (json.dumps({'error': 'Exercise not found'}), 404, headers)
-            
-        exercise_data = exercise_doc.to_dict()
-        
-        # Get patient's exercise history
-        patient_history = db.collection('exercise_reports').where('patient_id', '==', patient_id).order_by('timestamp', direction=firestore.Query.DESCENDING).limit(5).get()
-        recent_exercises = [doc.to_dict() for doc in patient_history]
-        
-        # Extract exercise metrics from conversation
-        metrics = extract_exercise_metrics(conversation_history)
-        
-        # Format conversation history for GPT
-        formatted_history = format_conversation_history(conversation_history)
-        
-        # Create GPT prompt
-        prompt = f"""Based on the following exercise session conversation and patient history, generate a comprehensive physical therapy report:
+        # Look for duration
+        if 'minute' in content or 'minutes' in content:
+            duration_matches = re.findall(r'(\d+)\s*minutes?', content)
+            if duration_matches:
+                metrics['duration_minutes'] = max(metrics['duration_minutes'], int(duration_matches[-1]))
+    
+    return metrics
+
+def format_conversation_history(conversation_history):
+    """Format conversation history for better GPT analysis."""
+    formatted_messages = []
+    for msg in conversation_history:
+        role = msg.get('role', '')
+        content = msg.get('content', '')
+        speaker = 'Patient' if role == 'user' else 'AI Coach'
+        formatted_messages.append(f"{speaker}: {content}")
+    
+    return "\n".join(formatted_messages)
+
+def generate_report_with_openai(exercise_data, patient_history, metrics, formatted_history, api_key):
+    """Generate report using OpenAI's GPT API."""
+    prompt = f"""Based on the following exercise session conversation and patient history, generate a comprehensive physical therapy report:
 
 Exercise: {exercise_data.get('name', 'Unknown')}
 Date: {datetime.now().strftime('%Y-%m-%d')}
@@ -64,7 +93,7 @@ Reps Completed: {metrics['reps_completed']}
 Exercise Duration: {metrics['duration_minutes']} minutes
 
 Recent Exercise History:
-{json.dumps(recent_exercises, indent=2)}
+{json.dumps(patient_history, indent=2)}
 
 Conversation History:
 {formatted_history}
@@ -93,10 +122,15 @@ Format the response as JSON with these exact keys:
     "motivational_message": "string"
 }}"""
 
-        # Call OpenAI API
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": "gpt-4",
+            "messages": [
                 {"role": "system", "content": """You are a professional physical therapist assistant. 
                 Generate detailed, accurate reports based on exercise session conversations.
                 Focus on specific, actionable insights and maintain a supportive, encouraging tone.
@@ -104,12 +138,82 @@ Format the response as JSON with these exact keys:
                 Be precise about exercise metrics and ensure they match what was discussed in the conversation."""},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
-            max_tokens=1000
-        )
+            "temperature": 0.7,
+            "max_tokens": 1000
+        }
+    )
+    
+    if response.status_code != 200:
+        raise Exception(f"OpenAI API error: {response.text}")
+    
+    result = response.json()
+    content = result.get('choices', [{}])[0].get('message', {}).get('content', '{}')
+    return json.loads(content)
+
+@functions_framework.http
+def generate_pt_report(request):
+    """
+    Cloud Function to generate a physical therapy report based on exercise session data.
+    
+    Request format:
+    {
+        "patient_id": "uuid-of-patient",
+        "exercise_id": "uuid-of-exercise",
+        "conversation_history": [
+            {"role": "user", "content": "message"},
+            {"role": "ai", "content": "message"}
+        ]
+    }
+    """
+    # Enable CORS
+    if request.method == 'OPTIONS':
+        headers = {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST',
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Max-Age': '3600'
+        }
+        return ('', 204, headers)
+    
+    headers = {'Access-Control-Allow-Origin': '*'}
+    
+    try:
+        request_json = request.get_json(silent=True)
         
-        # Parse GPT response
-        report_data = json.loads(response.choices[0].message.content)
+        if not request_json or 'patient_id' not in request_json or 'exercise_id' not in request_json:
+            return (json.dumps({'error': 'Invalid request - missing required parameters'}, cls=DateTimeEncoder), 400, headers)
+        
+        patient_id = request_json['patient_id']
+        exercise_id = request_json['exercise_id']
+        conversation_history = request_json.get('conversation_history', [])
+        
+        logger.info(f"Processing report generation for patient_id: {patient_id}, exercise_id: {exercise_id}")
+        
+        # Get exercise details from Firestore
+        exercise_ref = db.collection('exercises').document(exercise_id)
+        exercise_doc = exercise_ref.get()
+        
+        if not exercise_doc.exists:
+            logger.warning(f"Exercise not found: {exercise_id}")
+            return (json.dumps({'error': 'Exercise not found'}, cls=DateTimeEncoder), 404, headers)
+            
+        exercise_data = exercise_doc.to_dict()
+        
+        # Get patient's exercise history
+        patient_history = db.collection('exercise_reports').where('patient_id', '==', patient_id).order_by('timestamp', direction=firestore.Query.DESCENDING).limit(5).get()
+        recent_exercises = [doc.to_dict() for doc in patient_history]
+        
+        # Extract exercise metrics from conversation
+        metrics = extract_exercise_metrics(conversation_history)
+        
+        # Format conversation history for GPT
+        formatted_history = format_conversation_history(conversation_history)
+        
+        # Get OpenAI API key from Secret Manager
+        api_key = access_secret_version("openai-api-key")
+        
+        # Generate report using OpenAI
+        report_data = generate_report_with_openai(exercise_data, recent_exercises, metrics, formatted_history, api_key)
         
         # Ensure the metrics match what we extracted
         report_data['sets_completed'] = metrics['sets_completed']
@@ -129,57 +233,14 @@ Format the response as JSON with these exact keys:
         })
         report_ref.set(report_data)
         
+        logger.info(f"Successfully generated and stored report for patient {patient_id}")
+        
         return (json.dumps({
             'status': 'success',
             'report_id': report_ref.id,
             'report': report_data
-        }), 200, headers)
+        }, cls=DateTimeEncoder), 200, headers)
         
     except Exception as e:
-        print(f"Error generating report: {str(e)}")
-        return (json.dumps({'error': str(e)}), 500, headers)
-
-def extract_exercise_metrics(conversation_history):
-    """Extract exercise metrics from conversation history."""
-    metrics = {
-        'sets_completed': 0,
-        'reps_completed': 0,
-        'duration_minutes': 0
-    }
-    
-    # Initialize variables to track the latest metrics mentioned
-    for message in conversation_history:
-        content = message.get('content', '').lower()
-        
-        # Look for sets completed
-        if 'set' in content or 'sets' in content:
-            # Try to find numbers followed by "set" or "sets"
-            import re
-            set_matches = re.findall(r'(\d+)\s*sets?', content)
-            if set_matches:
-                metrics['sets_completed'] = max(metrics['sets_completed'], int(set_matches[-1]))
-        
-        # Look for reps completed
-        if 'rep' in content or 'reps' in content:
-            rep_matches = re.findall(r'(\d+)\s*reps?', content)
-            if rep_matches:
-                metrics['reps_completed'] = max(metrics['reps_completed'], int(rep_matches[-1]))
-        
-        # Look for duration
-        if 'minute' in content or 'minutes' in content:
-            duration_matches = re.findall(r'(\d+)\s*minutes?', content)
-            if duration_matches:
-                metrics['duration_minutes'] = max(metrics['duration_minutes'], int(duration_matches[-1]))
-    
-    return metrics
-
-def format_conversation_history(conversation_history):
-    """Format conversation history for better GPT analysis."""
-    formatted_messages = []
-    for msg in conversation_history:
-        role = msg.get('role', '')
-        content = msg.get('content', '')
-        speaker = 'Patient' if role == 'user' else 'AI Coach'
-        formatted_messages.append(f"{speaker}: {content}")
-    
-    return "\n".join(formatted_messages) 
+        logger.error(f"Error generating report: {str(e)}", exc_info=True)
+        return (json.dumps({'error': f'Error generating report: {str(e)}'}, cls=DateTimeEncoder), 500, headers) 
