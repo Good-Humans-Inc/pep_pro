@@ -4,13 +4,16 @@ import uuid
 import os
 import requests
 import logging
+import re  # Add missing import for regex
 from datetime import datetime
 from google.cloud import firestore
 from google.cloud import secretmanager
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, 
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Set up logging with more detailed format
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger('generate_pt_report')
 
 # Custom JSON encoder to handle datetime objects
@@ -35,8 +38,13 @@ def access_secret_version(secret_id, version_id="latest"):
         logger.error(f"Error accessing secret '{secret_id}': {str(e)}")
         raise
 
-# Initialize Firestore DB
-db = firestore.Client()
+# Initialize Firestore DB with error handling
+try:
+    db = firestore.Client()
+    logger.info("Successfully initialized Firestore client")
+except Exception as e:
+    logger.error(f"Failed to initialize Firestore client: {str(e)}")
+    raise
 
 def extract_exercise_metrics(conversation_history):
     """Extract exercise metrics from conversation history."""
@@ -46,43 +54,52 @@ def extract_exercise_metrics(conversation_history):
         'duration_minutes': 0
     }
     
-    for message in conversation_history:
-        content = message.get('content', '').lower()
+    try:
+        for message in conversation_history:
+            content = message.get('content', '').lower()
+            
+            # Look for sets completed
+            if 'set' in content or 'sets' in content:
+                set_matches = re.findall(r'(\d+)\s*sets?', content)
+                if set_matches:
+                    metrics['sets_completed'] = max(metrics['sets_completed'], int(set_matches[-1]))
+            
+            # Look for reps completed
+            if 'rep' in content or 'reps' in content:
+                rep_matches = re.findall(r'(\d+)\s*reps?', content)
+                if rep_matches:
+                    metrics['reps_completed'] = max(metrics['reps_completed'], int(rep_matches[-1]))
+            
+            # Look for duration
+            if 'minute' in content or 'minutes' in content:
+                duration_matches = re.findall(r'(\d+)\s*minutes?', content)
+                if duration_matches:
+                    metrics['duration_minutes'] = max(metrics['duration_minutes'], int(duration_matches[-1]))
         
-        # Look for sets completed
-        if 'set' in content or 'sets' in content:
-            set_matches = re.findall(r'(\d+)\s*sets?', content)
-            if set_matches:
-                metrics['sets_completed'] = max(metrics['sets_completed'], int(set_matches[-1]))
-        
-        # Look for reps completed
-        if 'rep' in content or 'reps' in content:
-            rep_matches = re.findall(r'(\d+)\s*reps?', content)
-            if rep_matches:
-                metrics['reps_completed'] = max(metrics['reps_completed'], int(rep_matches[-1]))
-        
-        # Look for duration
-        if 'minute' in content or 'minutes' in content:
-            duration_matches = re.findall(r'(\d+)\s*minutes?', content)
-            if duration_matches:
-                metrics['duration_minutes'] = max(metrics['duration_minutes'], int(duration_matches[-1]))
-    
-    return metrics
+        return metrics
+    except Exception as e:
+        logger.error(f"Error extracting exercise metrics: {str(e)}")
+        return metrics
 
 def format_conversation_history(conversation_history):
     """Format conversation history for better GPT analysis."""
-    formatted_messages = []
-    for msg in conversation_history:
-        role = msg.get('role', '')
-        content = msg.get('content', '')
-        speaker = 'Patient' if role == 'user' else 'AI Coach'
-        formatted_messages.append(f"{speaker}: {content}")
-    
-    return "\n".join(formatted_messages)
+    try:
+        formatted_messages = []
+        for msg in conversation_history:
+            role = msg.get('role', '')
+            content = msg.get('content', '')
+            speaker = 'Patient' if role == 'user' else 'AI Coach'
+            formatted_messages.append(f"{speaker}: {content}")
+        
+        return "\n".join(formatted_messages)
+    except Exception as e:
+        logger.error(f"Error formatting conversation history: {str(e)}")
+        return "Error formatting conversation history"
 
 def generate_report_with_openai(exercise_data, patient_history, metrics, formatted_history, api_key):
     """Generate report using OpenAI's GPT API."""
-    prompt = f"""Based on the following exercise session conversation and patient history, generate a comprehensive physical therapy report:
+    try:
+        prompt = f"""Based on the following exercise session conversation and patient history, generate a comprehensive physical therapy report:
 
 Exercise: {exercise_data.get('name', 'Unknown')}
 Date: {datetime.now().strftime('%Y-%m-%d')}
@@ -122,33 +139,36 @@ Format the response as JSON with these exact keys:
     "motivational_message": "string"
 }}"""
 
-    response = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "gpt-4",
-            "messages": [
-                {"role": "system", "content": """You are a professional physical therapist assistant. 
-                Generate detailed, accurate reports based on exercise session conversations.
-                Focus on specific, actionable insights and maintain a supportive, encouraging tone.
-                Consider the patient's history and progress when providing feedback.
-                Be precise about exercise metrics and ensure they match what was discussed in the conversation."""},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.7,
-            "max_tokens": 1000
-        }
-    )
-    
-    if response.status_code != 200:
-        raise Exception(f"OpenAI API error: {response.text}")
-    
-    result = response.json()
-    content = result.get('choices', [{}])[0].get('message', {}).get('content', '{}')
-    return json.loads(content)
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "gpt-4",
+                "messages": [
+                    {"role": "system", "content": """You are a professional physical therapist assistant. 
+                    Generate detailed, accurate reports based on exercise session conversations.
+                    Focus on specific, actionable insights and maintain a supportive, encouraging tone.
+                    Consider the patient's history and progress when providing feedback.
+                    Be precise about exercise metrics and ensure they match what was discussed in the conversation."""},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 1000
+            }
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"OpenAI API error: {response.text}")
+        
+        result = response.json()
+        content = result.get('choices', [{}])[0].get('message', {}).get('content', '{}')
+        return json.loads(content)
+    except Exception as e:
+        logger.error(f"Error generating report with OpenAI: {str(e)}")
+        raise
 
 @functions_framework.http
 def generate_pt_report(request):
