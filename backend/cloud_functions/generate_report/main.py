@@ -171,7 +171,7 @@ Format the response as JSON with these exact keys:
         raise
 
 @functions_framework.http
-def generate_pt_report(request):
+def generate_report(request):
     """
     Cloud Function to generate a physical therapy report based on exercise session data.
     
