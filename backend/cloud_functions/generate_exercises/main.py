@@ -439,7 +439,7 @@ def enhance_exercises_with_videos(exercises, google_api_key, google_cse_id):
     
     for exercise in exercises:
         # Create search query for exercise videos
-        search_query = f"{exercise['name']} knee physical therapy exercise"
+        search_query = f"{exercise['name']} physical therapy exercise"
         logger.info(f"Searching for videos: '{search_query}'")
         
         video_data = search_youtube_video(search_query, google_api_key, google_cse_id)
@@ -487,7 +487,6 @@ def search_youtube_video(query, google_api_key, google_cse_id, num_results=1):
             'key': google_api_key,
             'cx': google_cse_id,
             'q': query,
-            'searchType': 'video',
             'videoSyndicated': 'true',  # Only return embeddable videos
             'num': num_results  # Number of results to return
         }
