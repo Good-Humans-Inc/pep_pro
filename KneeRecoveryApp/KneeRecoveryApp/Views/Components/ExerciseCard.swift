@@ -12,7 +12,7 @@ struct ExerciseCard: View {
                     .fill(Color.gray.opacity(0.2))
                     .frame(width: 80, height: 80)
                 
-                if let imageURL = exercise.imageURL {
+                if let imageURL = exercise.imageURL1 {
                     AsyncImage(url: imageURL) { phase in
                         switch phase {
                         case .empty:

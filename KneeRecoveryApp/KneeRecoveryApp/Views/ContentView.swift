@@ -26,7 +26,7 @@ struct ContentView: View {
     }
     
     var body: some View {
-        if appState.isOnboardingComplete {
+        if appState.isOnboardingComplete  {
             LandingView()
                 .environmentObject(appState)
                 .environmentObject(voiceManager)

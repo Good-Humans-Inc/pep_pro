@@ -287,7 +287,7 @@ struct ExerciseDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // Header with image
-                if let imageURL = exercise.imageURL {
+                if let imageURL = exercise.imageURL1 {
                     AsyncImage(url: imageURL) { phase in
                         switch phase {
                         case .empty:
