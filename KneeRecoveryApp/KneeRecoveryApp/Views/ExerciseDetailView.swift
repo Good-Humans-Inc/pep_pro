@@ -763,7 +763,7 @@ struct ExerciseDetailView: View {
         ]
         
         // Create request
-        let url = URL(string: "\(ServerAPI.baseURL)/api/generate_report")!
+        let url = URL(string: "\(ServerAPI.baseURL)/generate_report")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -872,15 +872,17 @@ struct ExerciseDetailView: View {
         }
         
         // Create request
-        let url = URL(string: "\(ServerAPI.baseURL)/api/modify_exercise")!
+        let url = URL(string: "\(ServerAPI.baseURL)/modify_exercise")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+            print("📤 Request body: \(String(data: request.httpBody!, encoding: .utf8) ?? "unable to decode")")
         } catch {
             print("❌ Failed to encode request body: \(error)")
+            self.uploadError = "Failed to prepare request: \(error.localizedDescription)"
             return
         }
         
@@ -902,21 +904,36 @@ struct ExerciseDetailView: View {
                     return
                 }
                 
+                // Log raw response for debugging
+                if let rawResponse = String(data: data, encoding: .utf8) {
+                    print("📥 Raw response: \(rawResponse)")
+                }
+                
                 do {
                     let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                    print("📊 Modification response: \(json ?? [:])")
+                    print("📊 Parsed response: \(json ?? [:])")
                     
                     if let status = json?["status"] as? String, status == "success" {
                         // Clear recorded video URL after successful upload
                         self.recordedVideoURL = nil
+                        // Clear any previous errors
+                        self.uploadError = nil
                         // Dismiss the sheet
                         self.showingModifySheet = false
+                        
+                        // Log success
+                        print("✅ Exercise modifications saved successfully")
+                    } else if let error = json?["error"] as? String {
+                        print("❌ Server error: \(error)")
+                        self.uploadError = "Server error: \(error)"
                     } else {
+                        print("❌ Invalid response format")
                         self.uploadError = "Failed to save modifications: Invalid response from server"
                     }
                 } catch {
                     print("❌ Failed to parse response: \(error)")
-                    self.uploadError = "Failed to parse server response"
+                    print("❌ Response data: \(String(data: data, encoding: .utf8) ?? "unable to decode")")
+                    self.uploadError = "Failed to parse server response: \(error.localizedDescription)"
                 }
             }
         }.resume()
