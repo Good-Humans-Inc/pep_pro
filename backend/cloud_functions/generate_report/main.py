@@ -113,7 +113,7 @@ Reps Completed: {metrics['reps_completed']}
 Exercise Duration: {metrics['duration_minutes']} minutes
 
 Recent Exercise History:
-{json.dumps(patient_history, indent=2)}
+{json.dumps(patient_history, cls=DateTimeEncoder, indent=2)}
 
 Conversation History:
 {formatted_history}
