@@ -4,9 +4,15 @@ import uuid
 import os
 import requests
 import re
+import logging
 from google.cloud import firestore
 from google.cloud import secretmanager
 from datetime import datetime
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger('generate_exercises')
 
 # Custom JSON encoder to handle datetime objects
 class DateTimeEncoder(json.JSONEncoder):
@@ -20,18 +26,37 @@ def access_secret_version(secret_id, version_id="latest"):
     """
     Access the secret from GCP Secret Manager
     """
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{os.environ['PROJECT_ID']}/secrets/{secret_id}/versions/{version_id}"
-    response = client.access_secret_version(request={"name": name})
-    # Strip whitespace and newlines to avoid issues with API keys
-    return response.payload.data.decode("UTF-8").strip()
+    try:
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{os.environ['PROJECT_ID']}/secrets/{secret_id}/versions/{version_id}"
+        response = client.access_secret_version(request={"name": name})
+        # Strip whitespace and newlines to avoid issues with API keys
+        return response.payload.data.decode("UTF-8").strip()
+    except Exception as e:
+        logger.error(f"Error accessing secret '{secret_id}': {str(e)}")
+        raise
 
 # Initialize Firestore DB (default)
 db = firestore.Client()
 
-# Google Custom Search API constants
-GOOGLE_API_KEY = "AIzaSyBvd7NSR-uoBNu3IK3KwIN5X5M-CmrqsMw"
-GOOGLE_CSE_ID = "a3043470708db4323"
+# Function to get API keys from Secret Manager
+def get_api_keys():
+    """
+    Get all required API keys from Secret Manager
+    """
+    keys = {
+        'google_api_key': access_secret_version("google-api-key"),
+        'google_cse_id': access_secret_version("google-cse-id"),
+        'anthropic_api_key': access_secret_version("anthropic-api-key"),
+        'openai_api_key': access_secret_version("openai-api-key")
+    }
+    
+    # Verify we have the required keys
+    if not keys['google_api_key'] or not keys['google_cse_id']:
+        logger.error("Missing required Google API keys")
+        raise ValueError("Missing required Google API keys. Please check Secret Manager.")
+    
+    return keys
 
 @functions_framework.http
 def generate_exercises(request):
@@ -66,10 +91,24 @@ def generate_exercises(request):
         patient_id = request_json['patient_id']
         llm_provider = request_json.get('llm_provider', 'claude')  # Default to Claude if not specified
         
+        logger.info(f"Processing request for patient_id: {patient_id}, llm_provider: {llm_provider}")
+        
+        # Get all API keys from Secret Manager once at the beginning
+        api_keys = get_api_keys()
+        
         # 1. First, check if suitable exercises already exist in the database
         existing_exercises = check_existing_exercises(patient_id)
         
         if existing_exercises and len(existing_exercises) >= 3:
+            logger.info(f"Found {len(existing_exercises)} existing exercises for patient")
+            
+            # Debug: Validate existing video links
+            for exercise in existing_exercises:
+                video_url = exercise.get('video_url', '')
+                if video_url:
+                    logger.info(f"Existing exercise '{exercise['name']}' has video URL: {video_url}")
+                    validate_video_url(video_url, exercise['name'])
+            
             # Make sure existing exercises have video thumbnails
             for exercise in existing_exercises:
                 if not exercise.get('video_thumbnail') and exercise.get('video_url'):
@@ -84,16 +123,19 @@ def generate_exercises(request):
         # 2. If not enough existing exercises, get patient data
         patient_data = get_patient_data(patient_id)
         if not patient_data:
+            logger.warning(f"Patient not found: {patient_id}")
             return (json.dumps({'error': 'Patient not found'}, cls=DateTimeEncoder), 404, headers)
         
         # 3. Generate exercises using LLM (without video URLs)
         if llm_provider == 'openai':
-            exercises = generate_exercises_with_openai(patient_data)
+            exercises = generate_exercises_with_openai(patient_data, api_keys['openai_api_key'])
         else:  # Default to Claude
-            exercises = generate_exercises_with_claude(patient_data)
+            exercises = generate_exercises_with_claude(patient_data, api_keys['anthropic_api_key'])
+        
+        logger.info(f"Generated {len(exercises)} exercises using {llm_provider}")
         
         # 4. Enhance exercises with real video URLs and thumbnails
-        enhanced_exercises = enhance_exercises_with_videos(exercises)
+        enhanced_exercises = enhance_exercises_with_videos(exercises, api_keys['google_api_key'], api_keys['google_cse_id'])
         
         # 5. Save the generated exercises to Firestore
         saved_exercises = save_exercises(enhanced_exercises, patient_id)
@@ -106,7 +148,41 @@ def generate_exercises(request):
         }, cls=DateTimeEncoder), 200, headers)
         
     except Exception as e:
+        logger.error(f"Error generating exercises: {str(e)}", exc_info=True)
         return (json.dumps({'error': f'Error generating exercises: {str(e)}'}, cls=DateTimeEncoder), 500, headers)
+
+
+def validate_video_url(url, exercise_name):
+    """
+    Check if a YouTube video URL is still valid
+    """
+    try:
+        if 'youtube.com' in url or 'youtu.be' in url:
+            # Extract video ID
+            video_id = None
+            if 'youtube.com/watch?v=' in url:
+                video_id = url.split('youtube.com/watch?v=')[1].split('&')[0]
+            elif 'youtu.be/' in url:
+                video_id = url.split('youtu.be/')[1].split('?')[0]
+            
+            if not video_id:
+                logger.warning(f"Could not extract video ID from URL: {url}")
+                return False
+                
+            # Check video info via oEmbed API (lightweight way to validate)
+            oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+            response = requests.get(oembed_url)
+            
+            if response.status_code == 200:
+                logger.info(f"✅ Video for '{exercise_name}' is valid: {url}")
+                return True
+            else:
+                logger.warning(f"❌ Video for '{exercise_name}' may be unavailable: {url}")
+                return False
+    except Exception as e:
+        logger.warning(f"Error validating video URL {url}: {str(e)}")
+    
+    return False
 
 
 def check_existing_exercises(patient_id):
@@ -164,15 +240,12 @@ def get_patient_data(patient_id):
     return patient_data
 
 
-def generate_exercises_with_claude(patient_data):
+def generate_exercises_with_claude(patient_data, api_key):
     """
     Generate exercises using Anthropic's Claude API
     (Modified to request exercises without video URLs)
     """
     try:
-        # Get API key from Secret Manager
-        api_key = access_secret_version("anthropic-api-key")
-        
         # Construct prompt for Claude
         name = patient_data.get('name', 'the patient')
         age = patient_data.get('age', 'unknown age')
@@ -222,6 +295,8 @@ def generate_exercises_with_claude(patient_data):
         Respond ONLY with the JSON array and nothing else.
         """
         
+        logger.info("Calling Claude API to generate exercises")
+        
         # Call Claude API
         response = requests.post(
             "https://api.anthropic.com/v1/messages",
@@ -243,6 +318,7 @@ def generate_exercises_with_claude(patient_data):
         
         # Parse response
         if response.status_code != 200:
+            logger.error(f"Claude API error: {response.text}")
             raise Exception(f"Claude API error: {response.text}")
         
         result = response.json()
@@ -257,20 +333,20 @@ def generate_exercises_with_claude(patient_data):
             exercises_json = content  # Assume the content is just JSON
         
         exercises = json.loads(exercises_json)
+        logger.info(f"Claude generated {len(exercises)} exercises")
+        
         return exercises
     except Exception as e:
+        logger.error(f"Error in generate_exercises_with_claude: {str(e)}", exc_info=True)
         raise Exception(f"Error in generate_exercises_with_claude: {str(e)}")
 
 
-def generate_exercises_with_openai(patient_data):
+def generate_exercises_with_openai(patient_data, api_key):
     """
     Generate exercises using OpenAI's GPT API
     (Modified to request exercises without video URLs)
     """
     try:
-        # Get API key from Secret Manager
-        api_key = access_secret_version("openai-api-key")
-        
         # Construct prompt similarly to Claude version
         name = patient_data.get('name', 'the patient')
         age = patient_data.get('age', 'unknown age')
@@ -318,6 +394,8 @@ def generate_exercises_with_openai(patient_data):
         Respond ONLY with the JSON array and nothing else.
         """
         
+        logger.info("Calling OpenAI API to generate exercises")
+        
         # Call OpenAI API
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
@@ -338,18 +416,22 @@ def generate_exercises_with_openai(patient_data):
         
         # Parse response
         if response.status_code != 200:
+            logger.error(f"OpenAI API error: {response.text}")
             raise Exception(f"OpenAI API error: {response.text}")
         
         result = response.json()
         content = result.get('choices', [{}])[0].get('message', {}).get('content', '[]')
         
         exercises = json.loads(content)
+        logger.info(f"OpenAI generated {len(exercises)} exercises")
+        
         return exercises
     except Exception as e:
+        logger.error(f"Error in generate_exercises_with_openai: {str(e)}", exc_info=True)
         raise Exception(f"Error in generate_exercises_with_openai: {str(e)}")
 
 
-def enhance_exercises_with_videos(exercises):
+def enhance_exercises_with_videos(exercises, google_api_key, google_cse_id):
     """
     Add real video URLs and thumbnails to exercises using Google Custom Search API
     """
@@ -358,7 +440,9 @@ def enhance_exercises_with_videos(exercises):
     for exercise in exercises:
         # Create search query for exercise videos
         search_query = f"{exercise['name']} knee physical therapy exercise"
-        video_data = search_youtube_video(search_query)
+        logger.info(f"Searching for videos: '{search_query}'")
+        
+        video_data = search_youtube_video(search_query, google_api_key, google_cse_id)
         
         # Add video data to exercise
         exercise_with_video = exercise.copy()
@@ -366,8 +450,23 @@ def enhance_exercises_with_videos(exercises):
         if video_data:
             exercise_with_video['video_url'] = video_data.get('video_url', '')
             exercise_with_video['video_thumbnail'] = video_data.get('thumbnail', '')
+            
+            # Validate the found video
+            is_valid = validate_video_url(exercise_with_video['video_url'], exercise['name'])
+            if not is_valid:
+                # Try a more specific search if the first result isn't valid
+                logger.info(f"First video result for '{exercise['name']}' was invalid, trying alternative search...")
+                alt_search_query = f"{exercise['name']} knee rehabilitation exercise demonstration"
+                alt_video_data = search_youtube_video(alt_search_query, google_api_key, google_cse_id, num_results=5)
+                
+                if alt_video_data:
+                    exercise_with_video['video_url'] = alt_video_data.get('video_url', '')
+                    exercise_with_video['video_thumbnail'] = alt_video_data.get('thumbnail', '')
+                    logger.info(f"Alternative search found video: {exercise_with_video['video_url']}")
+                    validate_video_url(exercise_with_video['video_url'], exercise['name'])
         else:
             # Fallback if no video found
+            logger.warning(f"❌ No video found for '{exercise['name']}'")
             exercise_with_video['video_url'] = ''
             exercise_with_video['video_thumbnail'] = ''
         
@@ -376,7 +475,7 @@ def enhance_exercises_with_videos(exercises):
     return enhanced_exercises
 
 
-def search_youtube_video(query):
+def search_youtube_video(query, google_api_key, google_cse_id, num_results=1):
     """
     Search for YouTube videos using Google Custom Search API and return the URL and thumbnail
     of the most relevant video.
@@ -385,45 +484,68 @@ def search_youtube_video(query):
         # Build the API request
         url = "https://www.googleapis.com/customsearch/v1"
         params = {
-            'key': GOOGLE_API_KEY,
-            'cx': GOOGLE_CSE_ID,
+            'key': google_api_key,
+            'cx': google_cse_id,
             'q': query,
             'searchType': 'video',
             'videoSyndicated': 'true',  # Only return embeddable videos
-            'num': 1  # Just get the top result
+            'num': num_results  # Number of results to return
         }
+        
+        logger.info(f"Calling Google Custom Search API with query: '{query}'")
         
         response = requests.get(url, params=params)
         
         if response.status_code != 200:
-            print(f"Google Search API error: {response.text}")
+            logger.error(f"Google Search API error: {response.text}")
             return None
         
         data = response.json()
         
         # Check if we got search results
         if 'items' not in data or len(data['items']) == 0:
+            logger.warning("No search results found")
             return None
         
-        # Get the first result
-        video_item = data['items'][0]
+        # Get all video results
+        all_videos = []
+        for item in data['items']:
+            video_url = item.get('link', '')
+            
+            # Get thumbnail image if available
+            thumbnail = ''
+            if 'pagemap' in item and 'cse_image' in item['pagemap']:
+                thumbnail = item['pagemap']['cse_image'][0].get('src', '')
+            elif 'pagemap' in item and 'videoobject' in item['pagemap']:
+                thumbnail = item['pagemap']['videoobject'][0].get('thumbnailurl', '')
+            
+            logger.info(f"Found video: {video_url}")
+            logger.info(f"Video thumbnail: {thumbnail}")
+            
+            all_videos.append({
+                'title': item.get('title', 'Unknown'),
+                'video_url': video_url,
+                'thumbnail': thumbnail
+            })
         
-        # Get the video URL
-        video_url = video_item.get('link', '')
+        # If we were only asked for one result, return the first one
+        if num_results == 1 and all_videos:
+            return all_videos[0]
         
-        # Get thumbnail image if available
-        thumbnail = ''
-        if 'pagemap' in video_item and 'cse_image' in video_item['pagemap']:
-            thumbnail = video_item['pagemap']['cse_image'][0].get('src', '')
-        elif 'pagemap' in video_item and 'videoobject' in video_item['pagemap']:
-            thumbnail = video_item['pagemap']['videoobject'][0].get('thumbnailurl', '')
-        
-        return {
-            'video_url': video_url,
-            'thumbnail': thumbnail
-        }
+        # If we're looking for multiple videos, check if any of them are valid
+        for video in all_videos:
+            if validate_video_url(video['video_url'], "exercise"):
+                logger.info(f"Selected valid video: {video['video_url']}")
+                return video
+                
+        # If we checked all videos and none are valid, return the first one anyway
+        if all_videos:
+            logger.warning("No valid videos found, returning first result anyway")
+            return all_videos[0]
+            
+        return None
     except Exception as e:
-        print(f"Error searching for video: {str(e)}")
+        logger.error(f"Error searching for video: {str(e)}", exc_info=True)
         return None
 
 
@@ -442,7 +564,9 @@ def get_video_thumbnail(video_url):
             video_id = video_url.split('youtu.be/')[1].split('?')[0]
         
         if video_id:
-            return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+            thumbnail_url = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+            logger.info(f"Generated thumbnail URL: {thumbnail_url}")
+            return thumbnail_url
     
     # Default empty if we can't determine the thumbnail
     return ""
@@ -455,6 +579,9 @@ def save_exercises(exercises, patient_id):
     saved_exercises = []
     
     for exercise in exercises:
+        # Log the video URL we're saving
+        logger.info(f"Saving exercise '{exercise['name']}' with video URL: {exercise.get('video_url', 'None')}")
+        
         # Check if a similar exercise already exists
         similar_exercises = db.collection('exercises').where('name', '==', exercise['name']).limit(1).get()
         
