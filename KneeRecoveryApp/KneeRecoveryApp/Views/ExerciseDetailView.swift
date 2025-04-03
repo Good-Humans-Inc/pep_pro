@@ -284,69 +284,78 @@ struct ExerciseDetailView: View {
     
     // Exercise details view - shown when not in active exercise mode
     private var exerciseDetailsView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Header with image
-                if let imageURL = exercise.imageURL1 {
-                    AsyncImage(url: imageURL) { phase in
-                        switch phase {
-                        case .empty:
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.2))
-                                .aspectRatio(16/9, contentMode: .fit)
-                                .overlay(ProgressView())
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(16/9, contentMode: .fit)
-                        case .failure:
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.2))
-                                .aspectRatio(16/9, contentMode: .fit)
-                                .overlay(
-                                    Image(systemName: "photo")
-                                        .font(.largeTitle)
-                                )
-                        @unknown default:
-                            EmptyView()
-                        }
+        let screenWidth = UIScreen.main.bounds.width
+        
+        return VStack(){
+            YouTubePlayerView(videoID: exercise.videoId ?? "")
+                         .frame(width: screenWidth, height: screenWidth * 9 / 16) // 计算16:9 高度
+                         .background(Color.black)
+                         .cornerRadius(12)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Header with image
+//                    if let imageURL = exercise.imageURL1 {
+//                        AsyncImage(url: imageURL) { phase in
+//                            switch phase {
+//                            case .empty:
+//                                Rectangle()
+//                                    .fill(Color.gray.opacity(0.2))
+//                                    .aspectRatio(16/9, contentMode: .fit)
+//                                    .overlay(ProgressView())
+//                            case .success(let image):
+//                                image
+//                                    .resizable()
+//                                    .aspectRatio(16/9, contentMode: .fit)
+//                            case .failure:
+//                                Rectangle()
+//                                    .fill(Color.gray.opacity(0.2))
+//                                    .aspectRatio(16/9, contentMode: .fit)
+//                                    .overlay(
+//                                        Image(systemName: "photo")
+//                                            .font(.largeTitle)
+//                                    )
+//                            @unknown default:
+//                                EmptyView()
+//                            }
+//                        }
+//                        .cornerRadius(12)
+//                    }
+//                    
+                    
+                    // Exercise title and description
+                    Text(exercise.name)
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text(exercise.description)
+                        .foregroundColor(.secondary)
+                    
+                    // Modification controls
+                    exerciseModificationSection
+                    
+                    // Target joints section
+                    targetJointsSection
+                    
+                    // Instructions section
+                    instructionsSection
+                    
+                    // Start button
+                    Button(action: {
+                        startExercise()
+                    }) {
+                        Text("Start Exercise")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(isStartingExercise ? Color.gray : Color.blue)
+                            .cornerRadius(12)
                     }
-                    .cornerRadius(12)
+                    .padding(.top, 16)
+                    .disabled(isStartingExercise)
                 }
-                
-                // Exercise title and description
-                Text(exercise.name)
-                    .font(.title)
-                    .fontWeight(.bold)
-                
-                Text(exercise.description)
-                    .foregroundColor(.secondary)
-                
-                // Modification controls
-                exerciseModificationSection
-                
-                // Target joints section
-                targetJointsSection
-                
-                // Instructions section
-                instructionsSection
-                
-                // Start button
-                Button(action: {
-                    startExercise()
-                }) {
-                    Text("Start Exercise")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(isStartingExercise ? Color.gray : Color.blue)
-                        .cornerRadius(12)
-                }
-                .padding(.top, 16)
-                .disabled(isStartingExercise)
+                .padding()
             }
-            .padding()
         }
     }
     

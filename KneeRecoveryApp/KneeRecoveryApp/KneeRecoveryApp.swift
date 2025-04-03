@@ -222,6 +222,8 @@ struct KneeRecoveryApp: App {
         voiceManager = VoiceManager(appState: appState)
         speechRecognitionManager = SpeechRecognitionManager(appState: appState)
         resourceCoordinator = ResourceCoordinator(appState: appState)
+
+
         
         // Start vision processing
         visionManager.isProcessing = true

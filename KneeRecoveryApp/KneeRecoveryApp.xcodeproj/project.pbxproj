@@ -23,6 +23,7 @@
 		2CD9D0522D8146DE007F31A0 /* FirebaseInAppMessaging-Beta in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0512D8146DE007F31A0 /* FirebaseInAppMessaging-Beta */; };
 		2CD9D0542D8146DE007F31A0 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0532D8146DE007F31A0 /* FirebaseStorage */; };
 		2CD9D0612D825F3E007F31A0 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0602D825F3E007F31A0 /* FirebaseMessaging */; };
+		FE0DAE2D2D9EB7ED00D6C7D8 /* YouTubeiOSPlayerHelper in Frameworks */ = {isa = PBXBuildFile; productRef = FE0DAE2C2D9EB7ED00D6C7D8 /* YouTubeiOSPlayerHelper */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -103,6 +104,7 @@
 				2CD9D0612D825F3E007F31A0 /* FirebaseMessaging in Frameworks */,
 				2CD9D0442D8146DE007F31A0 /* FirebaseAppDistribution-Beta in Frameworks */,
 				2CD9D0522D8146DE007F31A0 /* FirebaseInAppMessaging-Beta in Frameworks */,
+				FE0DAE2D2D9EB7ED00D6C7D8 /* YouTubeiOSPlayerHelper in Frameworks */,
 				2CD9D0482D8146DE007F31A0 /* FirebaseAuthCombine-Community in Frameworks */,
 				2CD9D0302D801CF1007F31A0 /* SDWebImageSwiftUI in Frameworks */,
 				2CD9D0402D8146DE007F31A0 /* FirebaseAnalyticsWithoutAdIdSupport in Frameworks */,
@@ -192,6 +194,7 @@
 				2CD9D0512D8146DE007F31A0 /* FirebaseInAppMessaging-Beta */,
 				2CD9D0532D8146DE007F31A0 /* FirebaseStorage */,
 				2CD9D0602D825F3E007F31A0 /* FirebaseMessaging */,
+				FE0DAE2C2D9EB7ED00D6C7D8 /* YouTubeiOSPlayerHelper */,
 			);
 			productName = KneeRecoveryApp;
 			productReference = 2C12BAA52D6E50CF005AC0B0 /* KneeRecoveryApp.app */;
@@ -279,6 +282,7 @@
 				2C12BAFC2D6E532F005AC0B0 /* XCRemoteSwiftPackageReference "ElevenLabsSwift" */,
 				2CD9D02E2D801CF1007F31A0 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */,
 				2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				FE0DAE2B2D9EB7ED00D6C7D8 /* XCRemoteSwiftPackageReference "youtube-ios-player-helper" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2C12BAA62D6E50CF005AC0B0 /* Products */;
@@ -679,6 +683,14 @@
 				minimumVersion = 11.9.0;
 			};
 		};
+		FE0DAE2B2D9EB7ED00D6C7D8 /* XCRemoteSwiftPackageReference "youtube-ios-player-helper" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/youtube/youtube-ios-player-helper.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.4;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -761,6 +773,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseMessaging;
+		};
+		FE0DAE2C2D9EB7ED00D6C7D8 /* YouTubeiOSPlayerHelper */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FE0DAE2B2D9EB7ED00D6C7D8 /* XCRemoteSwiftPackageReference "youtube-ios-player-helper" */;
+			productName = YouTubeiOSPlayerHelper;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
