@@ -204,6 +204,15 @@ struct OnboardingView: View {
         print("Adding message: \(text), isUser: \(isUser)")
         let message = ConversationMessage(text: text, isUser: isUser)
         messages.append(message)
+        
+        //设置成扬声器播放
+        do{
+          try AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+        }
+        catch {
+           
+        }
+
         print("Messages count: \(messages.count)")
     }
     
