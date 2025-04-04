@@ -24,6 +24,7 @@
 		2CD9D0542D8146DE007F31A0 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0532D8146DE007F31A0 /* FirebaseStorage */; };
 		2CD9D0612D825F3E007F31A0 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 2CD9D0602D825F3E007F31A0 /* FirebaseMessaging */; };
 		FE0DAE2D2D9EB7ED00D6C7D8 /* YouTubeiOSPlayerHelper in Frameworks */ = {isa = PBXBuildFile; productRef = FE0DAE2C2D9EB7ED00D6C7D8 /* YouTubeiOSPlayerHelper */; };
+		FE0DB0D82DA00F6200D6C7D8 /* YoutubeKit in Frameworks */ = {isa = PBXBuildFile; productRef = FE0DB0D72DA00F6200D6C7D8 /* YoutubeKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -106,6 +107,7 @@
 				2CD9D0522D8146DE007F31A0 /* FirebaseInAppMessaging-Beta in Frameworks */,
 				FE0DAE2D2D9EB7ED00D6C7D8 /* YouTubeiOSPlayerHelper in Frameworks */,
 				2CD9D0482D8146DE007F31A0 /* FirebaseAuthCombine-Community in Frameworks */,
+				FE0DB0D82DA00F6200D6C7D8 /* YoutubeKit in Frameworks */,
 				2CD9D0302D801CF1007F31A0 /* SDWebImageSwiftUI in Frameworks */,
 				2CD9D0402D8146DE007F31A0 /* FirebaseAnalyticsWithoutAdIdSupport in Frameworks */,
 				2C12BAFE2D6E532F005AC0B0 /* ElevenLabsSDK in Frameworks */,
@@ -195,6 +197,7 @@
 				2CD9D0532D8146DE007F31A0 /* FirebaseStorage */,
 				2CD9D0602D825F3E007F31A0 /* FirebaseMessaging */,
 				FE0DAE2C2D9EB7ED00D6C7D8 /* YouTubeiOSPlayerHelper */,
+				FE0DB0D72DA00F6200D6C7D8 /* YoutubeKit */,
 			);
 			productName = KneeRecoveryApp;
 			productReference = 2C12BAA52D6E50CF005AC0B0 /* KneeRecoveryApp.app */;
@@ -283,6 +286,7 @@
 				2CD9D02E2D801CF1007F31A0 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */,
 				2CD9D03A2D8146DE007F31A0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				FE0DAE2B2D9EB7ED00D6C7D8 /* XCRemoteSwiftPackageReference "youtube-ios-player-helper" */,
+				FE0DB0D62DA00F6200D6C7D8 /* XCRemoteSwiftPackageReference "YoutubeKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2C12BAA62D6E50CF005AC0B0 /* Products */;
@@ -691,6 +695,14 @@
 				minimumVersion = 1.0.4;
 			};
 		};
+		FE0DB0D62DA00F6200D6C7D8 /* XCRemoteSwiftPackageReference "YoutubeKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/rinov/YoutubeKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.10.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -778,6 +790,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FE0DAE2B2D9EB7ED00D6C7D8 /* XCRemoteSwiftPackageReference "youtube-ios-player-helper" */;
 			productName = YouTubeiOSPlayerHelper;
+		};
+		FE0DB0D72DA00F6200D6C7D8 /* YoutubeKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FE0DB0D62DA00F6200D6C7D8 /* XCRemoteSwiftPackageReference "YoutubeKit" */;
+			productName = YoutubeKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

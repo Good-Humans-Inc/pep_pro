@@ -287,7 +287,7 @@ struct ExerciseDetailView: View {
         let screenWidth = UIScreen.main.bounds.width
         
         return VStack(){
-            YouTubePlayerView(videoID: exercise.videoId ?? "")
+            YoutubePlayerView(videoID: exercise.videoId ?? "")
                          .frame(width: screenWidth, height: screenWidth * 9 / 16) // 计算16:9 高度
                          .background(Color.black)
                          .cornerRadius(12)
@@ -320,8 +320,7 @@ struct ExerciseDetailView: View {
 //                        }
 //                        .cornerRadius(12)
 //                    }
-//                    
-                    
+//
                     // Exercise title and description
                     Text(exercise.name)
                         .font(.title)
@@ -661,6 +660,14 @@ struct ExerciseDetailView: View {
                 
                 // Set flag indicating we've started at least once
                 hasStartedExerciseBefore = true
+                
+                //设置成扬声器播放
+                do{
+                  try AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+                }
+                catch {
+                   
+                }
                 
                 print("🏁 Exercise fully started and UI updated")
             }

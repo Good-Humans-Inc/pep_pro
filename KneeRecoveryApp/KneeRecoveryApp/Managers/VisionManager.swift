@@ -65,6 +65,15 @@ class VisionManager: NSObject, ObservableObject {
             // Update transform matrix
             self.transformMatrix = CGAffineTransform(scaleX: self.previewLayer.width, y: self.previewLayer.height)
         }
+        
+        //设置成扬声器播放
+        do{
+          try AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+        }
+        catch {
+           
+        }
+        
     }
     
     func stopProcessing() {
