@@ -132,7 +132,7 @@ struct ExerciseDetailView: View {
                     saveModifications()
                 })
             }
-            // Use fullScreenCover for the report instead of sheet for better presentation
+        // Use fullScreenCover for the report instead of sheet for better presentation
             .fullScreenCover(isPresented: $showingExerciseReport) {
                 NavigationView {
                     ExerciseReportView(
@@ -285,42 +285,85 @@ struct ExerciseDetailView: View {
     // Exercise details view - shown when not in active exercise mode
     private var exerciseDetailsView: some View {
         let screenWidth = UIScreen.main.bounds.width
+
         
         return VStack(){
-            YoutubePlayerView(videoID: exercise.videoId ?? "")
-                         .frame(width: screenWidth, height: screenWidth * 9 / 16) // 计算16:9 高度
-                         .background(Color.black)
-                         .cornerRadius(12)
+            
+            
+            if((exercise.videoId?.isEmpty) != nil){
+                YoutubePlayerView(videoID: exercise.videoId ?? "")
+                    .frame(width: screenWidth, height: screenWidth * 9 / 16) // 计算16:9 高度
+                    .background(Color.black)
+                    .cornerRadius(12)
+            }
+            else if exercise.imageURL != nil {
+                CustomVideoPlayerView(url: exercise.imageURL!)
+                    .frame(width: screenWidth, height: screenWidth * 9 / 16) // 16:9
+            }
+            else{
+                if let imageURL = exercise.imageURL1 {
+                    AsyncImage(url: imageURL) { phase in
+                        switch phase {
+                        case .empty:
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.2))
+                                .aspectRatio(16/9, contentMode: .fit)
+                                .overlay(ProgressView())
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(16/9, contentMode: .fit)
+                        case .failure:
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.2))
+                                .aspectRatio(16/9, contentMode: .fit)
+                                .overlay(
+                                    Image(systemName: "photo")
+                                        .font(.largeTitle)
+                                )
+                        @unknown default:
+                            EmptyView()
+                        }
+                    }
+                    .cornerRadius(12)
+                }
+            }
+            
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     // Header with image
-//                    if let imageURL = exercise.imageURL1 {
-//                        AsyncImage(url: imageURL) { phase in
-//                            switch phase {
-//                            case .empty:
-//                                Rectangle()
-//                                    .fill(Color.gray.opacity(0.2))
-//                                    .aspectRatio(16/9, contentMode: .fit)
-//                                    .overlay(ProgressView())
-//                            case .success(let image):
-//                                image
-//                                    .resizable()
-//                                    .aspectRatio(16/9, contentMode: .fit)
-//                            case .failure:
-//                                Rectangle()
-//                                    .fill(Color.gray.opacity(0.2))
-//                                    .aspectRatio(16/9, contentMode: .fit)
-//                                    .overlay(
-//                                        Image(systemName: "photo")
-//                                            .font(.largeTitle)
-//                                    )
-//                            @unknown default:
-//                                EmptyView()
-//                            }
-//                        }
-//                        .cornerRadius(12)
-//                    }
-//
+                    //                    if let imageURL = exercise.imageURL1 {
+                    //                        AsyncImage(url: imageURL) { phase in
+                    //                            switch phase {
+                    //                            case .empty:
+                    //                                Rectangle()
+                    //                                    .fill(Color.gray.opacity(0.2))
+                    //                                    .aspectRatio(16/9, contentMode: .fit)
+                    //                                    .overlay(ProgressView())
+                    //                            case .success(let image):
+                    //                                image
+                    //                                    .resizable()
+                    //                                    .aspectRatio(16/9, contentMode: .fit)
+                    //                            case .failure:
+                    //                                Rectangle()
+                    //                                    .fill(Color.gray.opacity(0.2))
+                    //                                    .aspectRatio(16/9, contentMode: .fit)
+                    //                                    .overlay(
+                    //                                        Image(systemName: "photo")
+                    //                                            .font(.largeTitle)
+                    //                                    )
+                    //                            @unknown default:
+                    //                                EmptyView()
+                    //                            }
+                    //                        }
+                    //                        .cornerRadius(12)
+                    //                    }
+                    
+                    //
+                    
+//                    CustomVideoPlayerView(url: URL(string: "https://www.w3schools.com/html/mov_bbb.mp4")!)
+//                        .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.width * 9 / 16) // 16:9
+                    
                     // Exercise title and description
                     Text(exercise.name)
                         .font(.title)
@@ -510,9 +553,9 @@ struct ExerciseDetailView: View {
             queue: .main
         ) { [self] notification in
             guard let userInfo = notification.userInfo,
-                          let message = userInfo["message"] as? String else {
-                        return
-                    }
+                  let message = userInfo["message"] as? String else {
+                return
+            }
             
             // Add message to the coach messages
             self.coachMessages.append(message)
@@ -663,10 +706,10 @@ struct ExerciseDetailView: View {
                 
                 //设置成扬声器播放
                 do{
-                  try AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+                    try AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
                 }
                 catch {
-                   
+                    
                 }
                 
                 print("🏁 Exercise fully started and UI updated")
